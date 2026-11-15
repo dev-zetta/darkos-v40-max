@@ -1,0 +1,112 @@
+From ef2fd7abc1dd48d0533223533f3ffc0d5e754b4c Mon Sep 17 00:00:00 2001
+From: Gabriel Max <dev@zetta.app>
+Date: Mon, 16 Nov 2026 00:00:22 +0100
+Subject: [PATCH] Fix native battery discovery and keep status indicators
+ visible
+
+Select native power supplies by Battery type while retaining legacy battery-path compatibility. Use the discovered battery voltage_now or voltage_avg for platform and settings voltage display, keeping USB input voltage separate.
+
+Anchor the unthemed large-screen status group on its right edge, account for Bluetooth width, and preserve explicit theme positions and their historical left-alignment fallback. BatteryPlus percentage selection and audio settings remain unchanged.
+
+Validation: eight production query/GUI cases, 1080 production render cases and three explicit theme cases pass; baseline and omitted-Bluetooth-width controls fail. Isolated AArch64 incremental build passes with unchanged dependencies and byte-identical retained V3/V4 trees. Physical acceptance is pending.
+---
+ es-app/src/guis/arkos4clone/BatteryPlus.cpp       | 15 ++-------------
+ .../src/components/BatteryIndicatorComponent.cpp  |  1 +
+ .../components/ControllerActivityComponent.cpp    |  5 +++++
+ es-core/src/platform.cpp                          |  5 ++++-
+ 4 files changed, 12 insertions(+), 14 deletions(-)
+
+diff --git a/es-app/src/guis/arkos4clone/BatteryPlus.cpp b/es-app/src/guis/arkos4clone/BatteryPlus.cpp
+index 351824c..cb68002 100644
+--- a/es-app/src/guis/arkos4clone/BatteryPlus.cpp
++++ b/es-app/src/guis/arkos4clone/BatteryPlus.cpp
+@@ -2,6 +2,7 @@
+ #include "guis/arkos4clone/ArkOSUtil.h"
+ #include "utils/FileSystemUtil.h"
+ #include "utils/StringUtil.h"
++#include "platform.h"
+ 
+ #include <algorithm>
+ #include <cstdio>
+@@ -77,19 +78,7 @@ std::string getChargeStatus()
+ 
+ int getVoltageMv()
+ {
+-    std::string voltPath = ArkOSUtil::executeCommand(
+-        "ls /sys/class/power_supply/*/voltage_now 2>/dev/null | head -1");
+-    voltPath.erase(std::remove_if(voltPath.begin(), voltPath.end(), ::isspace), voltPath.end());
+-    if (voltPath.empty()) return 0;
+-
+-    std::string result = ArkOSUtil::executeCommand("cat " + voltPath + " 2>/dev/null");
+-    result.erase(std::remove_if(result.begin(), result.end(), ::isspace), result.end());
+-    try {
+-        int uv = std::stoi(result);
+-        return uv / 1000; // uV -> mV
+-    } catch (...) {
+-        return 0;
+-    }
++    return static_cast<int>(queryBatteryVoltage() * 1000); // V -> mV
+ }
+ 
+ void deleteRecords()
+diff --git a/es-core/src/components/BatteryIndicatorComponent.cpp b/es-core/src/components/BatteryIndicatorComponent.cpp
+index 122760d..464b191 100644
+--- a/es-core/src/components/BatteryIndicatorComponent.cpp
++++ b/es-core/src/components/BatteryIndicatorComponent.cpp
+@@ -25,6 +25,7 @@ void BatteryIndicatorComponent::init()
+ 	{
+ 		setPosition(Renderer::getScreenWidth() * 0.955, Renderer::getScreenHeight() *0.0125);
+ 		setSize(Renderer::getScreenWidth() * 0.033, Renderer::getScreenHeight() *0.033);
++		mHorizontalAlignment = ALIGN_RIGHT;
+ 	}
+ 
+ 	mView = ActivityView::BATTERY;
+diff --git a/es-core/src/components/ControllerActivityComponent.cpp b/es-core/src/components/ControllerActivityComponent.cpp
+index 81be681..0a927b0 100644
+--- a/es-core/src/components/ControllerActivityComponent.cpp
++++ b/es-core/src/components/ControllerActivityComponent.cpp
+@@ -254,6 +254,8 @@ void ControllerActivityComponent::render(const Transform4x4f& parentTrans)
+ */
+ 	if ((mView & NETWORK) && (mNetworkImage != nullptr || mNetworkActiveImage != nullptr || mNetworkOffImage != nullptr || mNetworkShareImage != nullptr || mNetworkServiceImage != nullptr))
+ 		itemsWidth += szW + mSpacing; // getTextureSize(mNetworkImage).x()
++	if ((mView & BLUETOOTH) && (mBluetoothImage != nullptr || mBluetoothActiveImage != nullptr || mBluetoothOffImage != nullptr))
++		itemsWidth += szW + mSpacing;
+ 
+ 	auto batteryText = std::to_string(mBatteryInfo.level) + "%";
+ 	
+@@ -362,6 +364,9 @@ void ControllerActivityComponent::applyTheme(const std::shared_ptr<ThemeData>& t
+ 	const ThemeData::ThemeElement* elem = theme->getElement(view, element, element);
+ 	if (elem == nullptr)
+ 		return;
++	// Positioned themes historically defaulted to left alignment.
++	if ((properties & POSITION) && elem->has("pos") && !elem->has("horizontalAlignment"))
++		setHorizontalAlignment(ALIGN_LEFT);
+ 
+ 	if (properties & PATH)
+ 	{		
+diff --git a/es-core/src/platform.cpp b/es-core/src/platform.cpp
+index 2f07d33..c59f7de 100644
+--- a/es-core/src/platform.cpp
++++ b/es-core/src/platform.cpp
+@@ -295,7 +295,8 @@ std::string queryBatteryRootPath()
+ 		auto files = Utils::FileSystem::getDirContent("/sys/class/power_supply");
+ 		for (auto file : files)
+ 		{
+-			if (Utils::String::toLower(file).find("/bat") != std::string::npos)
++			auto type = Utils::String::toLower(Utils::String::trim(Utils::FileSystem::readAllText(file + "/type")));
++			if (type == "battery" || (type.empty() && Utils::String::toLower(file).find("/bat") != std::string::npos))
+ 			{
+ 				batteryRootPath = file;
+ 				break;
+@@ -364,6 +365,8 @@ bool queryBatteryCharging()
+ float queryBatteryVoltage()
+ {
+ 	std::string batteryVoltagePath = queryBatteryRootPath() + "/voltage_now";
++	if (!Utils::FileSystem::exists(batteryVoltagePath))
++		batteryVoltagePath = queryBatteryRootPath() + "/voltage_avg";
+ 	if ( Utils::FileSystem::exists(batteryVoltagePath) )
+ 		return std::atof(Utils::FileSystem::readAllText(batteryVoltagePath).c_str()) / 1000000; // volts
+ 
+-- 
+2.53.0
+

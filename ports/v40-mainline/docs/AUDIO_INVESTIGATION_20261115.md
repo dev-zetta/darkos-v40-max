@@ -1,5 +1,7 @@
 # Audio follow-up, 2026-11-15
 
+This is the historical V4 trial record. The later [battery/status investigation](BATTERY_STATUS_20261116.md) replaces the frontend and adds focused mainline gauge/DC reporting changes while retaining the unresolved audio findings below.
+
 Linux 7.3.4-v40.1 remains installed. Frontend V4 SHA-256 39339a1e77bcc7582958a807751a62de2e79bcac91a0918a0094c79c1feb48ac and its matching integrity consumers were installed and verified; the user reported menu sound unchanged or worse. Menu background music is now disabled by user preference, while debug logging and game sound remain enabled. The default source recipe continues to select V3. No new kernel or codec change was installed during this follow-up.
 
 The experimental perfmax helper was tried with the existing CPU/GPU operating points. Two PSP launches froze the device, including network access. Restoring the prior helper SHA-256 22820af9c8dd39095db25484d7adb566b017865795f682c64b89b90bbf7d6f27 restored successful game launch. The successful comparison also reached GPU 480 MHz using simple_ondemand; the failed candidate used userspace. The policy/transition path remains a hypothesis, and neither a frequency-only cause nor a precise kernel fault has been established. Retain the rollback and exclude that candidate from routine deployment.

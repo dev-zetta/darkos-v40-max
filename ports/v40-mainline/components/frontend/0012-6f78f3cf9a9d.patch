@@ -1,0 +1,43 @@
+From 6f78f3cf9a9df5956a1eac43ea0d6b2703a74f3b Mon Sep 17 00:00:00 2001
+From: Gabriel Max <dev@zetta.app>
+Date: Mon, 16 Nov 2026 00:31:16 +0100
+Subject: [PATCH] Use discovered battery information in the START-menu footer
+
+The corner battery indicator worked, but the START menu showed BAT: % because its footer still read /sys/class/power_supply/battery/capacity when BatteryPlus was disabled. Use queryBatteryInformation(true), matching native power-supply discovery and the existing BatteryPlus preference, and show -- when no battery exists.
+
+Keep the sound, brightness and Wi-Fi fields unchanged. This does not modify charging logic or global indicator rendering.
+
+Validation: the actual complete addEntry construction passes eleven real-filesystem/StringUtil query cases, including native battery, BatteryPlus override and missing battery. The previous footer expression fails because it uses the obsolete shell path. Isolated AArch64 build passes with unchanged dependencies and byte-identical retained V3/V4/V5/V5b source/build trees. Physical acceptance is pending.
+---
+ es-app/src/guis/GuiMenu.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/es-app/src/guis/GuiMenu.cpp b/es-app/src/guis/GuiMenu.cpp
+index 32e7351..cd03285 100644
+--- a/es-app/src/guis/GuiMenu.cpp
++++ b/es-app/src/guis/GuiMenu.cpp
+@@ -36,6 +36,12 @@
+ //#include <go2/display.h>
+ #include "SystemConf.h"
+ 
++static std::string getBatteryStatusText()
++{
++	const auto battery = queryBatteryInformation(true);
++	return battery.hasBattery ? std::to_string(battery.level) + "%" : "--";
++}
++
+ static std::string getWifiStatusText()
+ {
+ 	// 方法1：检查rfkill状态（判断WiFi是否被禁用）
+@@ -141,7 +147,7 @@ GuiMenu::GuiMenu(Window* window, bool animate) : GuiComponent(window), mMenu(win
+ 	
+ 	addEntry(_("QUIT"), !Settings::getInstance()->getBool("ShowOnlyExit"), [this] {openQuitMenu(); }, "iconQuit");
+ 
+-	addEntry(_("BAT") + ": " + std::string(getShOutput(R"(cat /tmp/battery.percent 2>/dev/null || cat /sys/class/power_supply/battery/capacity)")) + "%" + " | " + _("SND") + ": " + std::string(getShOutput(R"(current_volume)")) + " | " + _("BRT") + ": " + std::to_string(ApiSystem::getInstance()->getBrightnessLevel()) + "% | " + _("WIFI") + ": " + getWifiStatusText(), false, [this] {  });
++	addEntry(_("BAT") + ": " + getBatteryStatusText() + " | " + _("SND") + ": " + std::string(getShOutput(R"(current_volume)")) + " | " + _("BRT") + ": " + std::to_string(ApiSystem::getInstance()->getBrightnessLevel()) + "% | " + _("WIFI") + ": " + getWifiStatusText(), false, [this] {  });
+ 
+ 	addEntry(_("Distro Version") + ": " + std::string(getShOutput(R"(cat /usr/share/plymouth/themes/text.plymouth | grep title | cut -c 7-50)")), false, [this] {  });
+ 
+-- 
+2.53.0
+

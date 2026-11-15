@@ -1,17 +1,16 @@
 {
-  "date": "2026-11-15",
+  "date": "2026-11-16",
   "kernel_release": "7.3.4-v40.1",
-  "kernel_base_image_sha256": "1c0af6ed7e96ad7c30b09a7a149b1db82ff01a85eb89be528ed2c2c6214055c3",
-  "deployed_diagnostic_image_sha256": "164d0ff675ec6c09a6651f3975e4da78d4a8b077480d7fbfe131efdb2d9d1bc6",
-  "deployed_kernel_build_id": "8f3a16ff4ddaf3b8e0e91b81a6e6176574823597",
-  "dtb_sha256": "842f033cab08cc242c7595261d6d4ef59410ac35741376f01df75941205266e3",
+  "deployed_diagnostic_image_sha256": "45972b0937bf0e2febd88e2c5ad270f47d8be59ccaf55c416585a4b7f488b573",
+  "deployed_kernel_build_id": "9b073e539870f55bc27441bee8e625b03fafc5ee",
+  "dtb_sha256": "7b7f792f6cc5bfd57affb0589bd7f528c08f5d0087dca97f565cdf47ba2da5b3",
   "config_sha256": "beb6c89e00283fa170a601bf350fb4d84459fdc19e60e7dfbf617ae2ff665cfd",
   "module_symvers_sha256": "57dc4c79e3f577d636d745ea511b037e309d8bab01267ad9522a2812f9fa9bbf",
   "exported_symbols": 17383,
   "retained_modules_checked": 871,
   "module_import_crcs_checked": 34885,
-  "frontend_source_commit": "f0939909342d95aa3f327dcbf111a9a4f5d15ea9",
-  "frontend_binary_sha256": "74e0c5f9adace11468d4aabb243fc60b0e39fecf48eda72c72a53d10d1042e62",
+  "frontend_source_commit": "6f78f3cf9a9df5956a1eac43ea0d6b2703a74f3b",
+  "frontend_binary_sha256": "6da989f88ad8431472f12290a58146c0ff916ce2a0e6e794596d31400175e82b",
   "retained_ppsspp_binary_sha256": "f8fb385b80fde742f194b4e9ca3e984e35c031fdf65267cea61b64c6bca7b886",
   "alsa_helper_sha256": "d63f2d37b43caac0d5c5b7b9f9d33fe5051f71741de5b1549dfe7e9738cee8de",
   "public_binary_release": false,
@@ -23,15 +22,34 @@
     "AX900 RTL8851BU Wi-Fi and SSH",
     "PSP image after buffer-effects correction",
     "PSP FN SELECT START after mapping correction",
-    "SELECT+START game exit"
+    "SELECT+START game exit",
+    "battery percentage beside Wi-Fi",
+    "charging indicator transitions",
+    "START-menu BAT percentage"
   ],
   "pending": [
     "audio scrambling",
     "software reboot display reliability",
     "headphone transitions",
     "suspend/wake",
-    "thermal and wider emulator validation"
+    "thermal and wider emulator validation",
+    "full charge/discharge accuracy",
+    "external DC charge-completion reporting"
   ],
-  "component_port_source_commit": "1e44ac74685659e52ca1db22da6d7b7567714389",
-  "experimental_frontend_source_commit": "0c04597043d63c6ed11d924271595e72d2954aee"
+  "component_port_source_commit": "a588a9cf8c5cf6b0588f171bfff64ed5c22dba91",
+  "historical_kernel_base_image_sha256": "1c0af6ed7e96ad7c30b09a7a149b1db82ff01a85eb89be528ed2c2c6214055c3",
+  "frontend_build_id": "65d8824f2f4a95d4cba75fc8e981f7e9f5764259",
+  "optional_dma_enabled_on_development_installation": true,
+  "battery_same_boot_jump_reproduced": false,
+  "battery_cycle_accuracy_verified": false,
+  "known_audio_noise_resolved": false,
+  "historical_artifact_record": "ARTIFACTS_20261115.json",
+  "live_verified": [
+    "kernel build identity after user cold boot",
+    "native battery counter preserved at about 67 percent despite charger-biased boot voltage",
+    "DC input active-high measurement and claimed input after boot",
+    "Charging status and ONLINE=1 with adapter connected",
+    "battery percentage and charging bolt in live framebuffer beside Wi-Fi/Bluetooth"
+  ],
+  "callback_notification_source_commit": "0c04597043d63c6ed11d924271595e72d2954aee"
 }

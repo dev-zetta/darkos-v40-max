@@ -1,3 +1,7 @@
+# V40 mainline battery/status follow-up, 2026-11-16
+
+Added focused RK817 gauge fixes with upstream authorship preserved and optional external-DC GPIO reporting for the tested board. The Linux 7.3.4-v40.1 rebuild preserves the exact configuration and retained module ABI. Frontend battery discovery now supports rk817-battery, voltage_avg and sysfs newlines; battery percentage fits beside Wi-Fi/Bluetooth and appears in the START-menu footer. The user confirmed charging-icon transitions and both percentage displays after installation. Full-cycle battery accuracy and independent audio static/cracks remain unresolved or unverified. See ports/v40-mainline/docs/BATTERY_STATUS_20261116.md for source identities, validation and limits.
+
 # V40 mainline development branch, 2026-11-15
 
 Added the signed-source Linux 7.3.4 / 7.3.4-v40.1 RK3326 720x720 port, exact kernel configuration, source locks, author-preserving component patches and private Mesa/SDL runtime staging. The port retains stock-wiring gamepad/panel details, board-specific HP-DAC speaker routing, native RTL8851BU Wi-Fi and original games/saves during the tested migration. PSP buffered rendering and complete CRC-specific FN/SELECT/START mapping were physically confirmed after installation. See ports/v40-mainline for build, deployment, source credits and validation details.

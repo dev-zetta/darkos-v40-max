@@ -1,0 +1,161 @@
+--- a/drivers/power/supply/rk817_charger.c
++++ b/drivers/power/supply/rk817_charger.c
+@@ -9,7 +9,9 @@
+  */
+ 
+ #include <linux/unaligned.h>
++#include <linux/compiler.h>
+ #include <linux/devm-helpers.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/mfd/rk808.h>
+ #include <linux/irq.h>
+ #include <linux/of.h>
+@@ -53,6 +55,8 @@
+ 	struct power_supply *chg_ps;
+ 	bool plugged_in;
+ 	bool battery_present;
++	struct gpio_desc *dc_detect_gpio;
++	bool dc_present;
+ 
+ 	/*
+ 	 * voltage_k and voltage_b values are used to calibrate the ADC
+@@ -478,6 +482,33 @@
+ 	rk817_bat_calib_cap(charger);
+ }
+ 
++/* The external DC input is independent of the PMIC USB plug detector. */
++static bool rk817_external_power_present(struct rk817_charger *charger)
++{
++	return READ_ONCE(charger->plugged_in) || READ_ONCE(charger->dc_present);
++}
++
++/* Called only by the existing monitor; no additional GPIO IRQ/state writer. */
++static bool rk817_update_dc_present(struct rk817_charger *charger)
++{
++	bool old_present = READ_ONCE(charger->dc_present);
++	int present;
++
++	if (!charger->dc_detect_gpio)
++		return false;
++
++	present = gpiod_get_value_cansleep(charger->dc_detect_gpio);
++	if (present < 0) {
++		dev_warn_ratelimited(charger->dev,
++				    "Unable to read DC presence GPIO: %d\n",
++				    present);
++		return false;
++	}
++
++	WRITE_ONCE(charger->dc_present, !!present);
++	return old_present != !!present;
++}
++
+ static int rk817_bat_get_prop(struct power_supply *ps,
+ 		enum power_supply_property prop,
+ 		union power_supply_propval *val)
+@@ -491,6 +522,13 @@
+ 	case POWER_SUPPLY_PROP_STATUS:
+ 		if (charger->cur_avg_ua < 0) {
+ 			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
++			break;
++		}
++		if (READ_ONCE(charger->dc_present)) {
++			/* DC presence is not a battery-full indication. */
++			val->intval = charger->cur_avg_ua > 0 ?
++				POWER_SUPPLY_STATUS_CHARGING :
++				POWER_SUPPLY_STATUS_NOT_CHARGING;
+ 			break;
+ 		}
+ 		switch (charger->charge_status) {
+@@ -517,6 +555,13 @@
+ 		}
+ 		break;
+ 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
++		if (READ_ONCE(charger->dc_present)) {
++			/* The external charger's phase is not reported by RK817. */
++			val->intval = charger->cur_avg_ua > 0 ?
++				POWER_SUPPLY_CHARGE_TYPE_UNKNOWN :
++				POWER_SUPPLY_CHARGE_TYPE_NONE;
++			break;
++		}
+ 		switch (charger->charge_status) {
+ 		case CHRG_OFF:
+ 		case CHARGE_FINISH:
+@@ -594,7 +639,7 @@
+ 
+ 	switch (prop) {
+ 	case POWER_SUPPLY_PROP_ONLINE:
+-		val->intval = charger->plugged_in;
++		val->intval = rk817_external_power_present(charger);
+ 		break;
+ 	case POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN:
+ 		/* max voltage from datasheet at 5.5v (default 5.0v) */
+@@ -1118,11 +1163,18 @@
+ static void rk817_charging_monitor(struct work_struct *work)
+ {
+ 	struct rk817_charger *charger;
++	bool dc_changed;
+ 
+ 	charger = container_of(work, struct rk817_charger, work.work);
+ 
++	dc_changed = rk817_update_dc_present(charger);
+ 	rk817_read_props(charger);
+ 	rk817_bat_ocv_recalibrate(charger);
++
++	if (dc_changed) {
++		power_supply_changed(charger->chg_ps);
++		power_supply_changed(charger->bat_ps);
++	}
+ 
+ 	/* Run every 8 seconds like the BSP driver did. */
+ 	queue_delayed_work(system_percpu_wq, &charger->work, msecs_to_jiffies(8000));
+@@ -1171,6 +1223,16 @@
+ 	charger->dev = &pdev->dev;
+ 	platform_set_drvdata(pdev, charger);
+ 
++	/* MFD child platform devices do not necessarily carry the charger node. */
++	if (of_property_present(node, "dc-detect-gpios")) {
++		charger->dc_detect_gpio = devm_fwnode_gpiod_get(dev,
++						of_fwnode_handle(node), "dc-detect",
++						GPIOD_IN, "rk817-dc-detect");
++		if (IS_ERR(charger->dc_detect_gpio))
++			return dev_err_probe(dev, PTR_ERR(charger->dc_detect_gpio),
++					     "Unable to get DC presence GPIO\n");
++	}
++
+ 	rk817_bat_calib_vol(charger);
+ 
+ 	pscfg.drv_data = charger;
+--- a/Documentation/devicetree/bindings/mfd/rockchip,rk817.yaml
++++ b/Documentation/devicetree/bindings/mfd/rockchip,rk817.yaml
+@@ -130,6 +130,14 @@
+           voltage-max-design-microvolt,
+           voltage-min-design-microvolt,
+           and a valid ocv-capacity table.
++
++      dc-detect-gpios:
++        maxItems: 1
++        description:
++          Input indicating an external DC adapter is present, independently of
++          the PMIC USB plug detector. GPIO polarity describes the active level.
++          This input is used for supply and charging-status reporting only; it
++          does not control charger settings or the boost regulator.
+ 
+       rockchip,resistor-sense-micro-ohms:
+         description: |
+--- a/arch/arm64/boot/dts/rockchip/rk3326-v40-max.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3326-v40-max.dts
+@@ -191,7 +191,12 @@
+ &vccio_sd { regulator-min-microvolt = <1800000>; regulator-max-microvolt = <1800000>; };
+ &vcc_sd { regulator-min-microvolt = <1800000>; regulator-max-microvolt = <3000000>; regulator-state-mem { regulator-suspend-microvolt = <3000000>; }; };
+ &io_domains { vccio1-supply = <&vccio_sd>; };
+-&rk817_charger { monitored-battery = <&battery>; };
++&rk817_charger {
++    monitored-battery = <&battery>;
++    pinctrl-names = "default";
++    pinctrl-0 = <&dc_det>;
++    dc-detect-gpios = <&gpio0 11 GPIO_ACTIVE_HIGH>;
++};
+ &{/rk817-sound} { simple-audio-card,name = "rockchip,rk817-codec"; simple-audio-card,hp-det-gpios = <&gpio2 22 GPIO_ACTIVE_LOW>; };
+ &pwm0 { status = "okay"; };
+ &pwm3 { status = "disabled"; };

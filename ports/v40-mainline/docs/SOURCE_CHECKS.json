@@ -1,12 +1,15 @@
 {
+  "date": "2026-11-16",
   "passed": true,
+  "historical_source_checks": "SOURCE_CHECKS_20261115.json",
   "kernel_archive_sha256_verified": true,
+  "source_files_checked_against_pristine_archive": 95979,
   "default_source_preparation": true,
   "optional_diagnostic_source_preparation": true,
-  "source_files_checked_against_pristine_archive": 95979,
-  "changed_files_default": 16,
-  "changed_files_with_optional_dma": 17,
-  "exact_config_reproduced_with_original_toolchain": true,
+  "changed_files_default": 19,
+  "changed_files_with_optional_dma": 20,
+  "battery_driver_binding_header_dts_match_compiled_source": true,
+  "config_unchanged": true,
   "config_sha256": "beb6c89e00283fa170a601bf350fb4d84459fdc19e60e7dfbf617ae2ff665cfd",
   "component_replay": {
     "passed": true,
@@ -14,8 +17,8 @@
     "components": [
       {
         "component": "frontend",
-        "files": 437,
-        "patches": 8,
+        "files": 438,
+        "patches": 12,
         "accepted_tree_matched": true
       },
       {
@@ -32,16 +35,51 @@
       }
     ]
   },
-  "runtime_staging": {
+  "frontend_mail_replay": {
     "passed": true,
-    "rendered_consumers_match_accepted_v3": true,
-    "source_syntax_checked": true,
-    "source_helpers_syntax_checked": 16
+    "patches": 12,
+    "tree_matched": true,
+    "actual_tree": "bf29943cc98bfeaa00f1865d9530f1fd298764dd",
+    "expected_tree": "bf29943cc98bfeaa00f1865d9530f1fd298764dd",
+    "authors_preserved": true,
+    "authors": [
+      "Codex <codex@local.invalid>",
+      "Codex <codex@local.invalid>",
+      "Clio Brando <32285172+cliobrando@users.noreply.github.com>",
+      "Gabriel Max <dev@zetta.app>",
+      "Gabriel Max <dev@zetta.app>",
+      "Gabriel Max <dev@zetta.app>",
+      "Gabriel Max <dev@zetta.app>",
+      "Gabriel Max <dev@zetta.app>",
+      "Gabriel Max <dev@zetta.app>",
+      "Gabriel Max <dev@zetta.app>",
+      "Gabriel Max <dev@zetta.app>",
+      "Gabriel Max <dev@zetta.app>"
+    ],
+    "requires_keep_cr": true,
+    "network_used": false
   },
-  "psp_settings_behavioral_tests": 2,
+  "runtime_digest_consumers_match_installed_v6": {
+    "/usr/local/libexec/v40max-frontend-launch": "099bf072ff7240208fee77bf9f76c730b323acc95e2f815faa2eb89618f46f9f",
+    "/usr/local/sbin/v40max-media-control": "5b64bbeafd8a25b8fccf95c3d7aa18656a47d01a3ddcef528358b40db2301468"
+  },
+  "gauge_extracted_function_cases": 128,
+  "dc_status_matrix_cases": 144,
+  "dc_probe_cases": 3,
+  "dc_monitor_edge_error_cases": 10,
+  "frontend_v5b_real_helper_query_cases": 11,
+  "frontend_status_render_cases": 1080,
+  "frontend_explicit_theme_cases": 3,
+  "frontend_v6_footer_cases": 11,
+  "installer_actual_remote_cases": 36,
+  "kernel_exported_symbols_checked": 17383,
+  "kernel_export_bytes_unchanged": true,
+  "retained_modules_checked": 871,
+  "retained_module_import_crcs_checked": 34885,
+  "kernel_cold_boot_identity_verified": true,
+  "source_builder_network_used": false,
   "full_new_image_build": false,
-  "new_hardware_test_in_this_publication_task": false,
-  "user_reported_psp_acceptance": true,
   "private_device_data_included": false,
-  "publication_files_reviewed": 91
+  "audio_quality_fixed": false,
+  "battery_cycle_accuracy_verified": false
 }

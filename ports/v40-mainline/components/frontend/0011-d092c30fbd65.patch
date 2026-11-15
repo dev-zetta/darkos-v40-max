@@ -1,0 +1,32 @@
+From d092c30fbd6567ee9c89a56e9783f8d03f95c16e Mon Sep 17 00:00:00 2001
+From: Gabriel Max <dev@zetta.app>
+Date: Mon, 16 Nov 2026 00:09:39 +0100
+Subject: [PATCH] Normalize sysfs battery type line endings before matching
+
+Native power_supply/type contains Battery followed by a newline. The frontend StringUtil::trim removes only spaces and tabs, so V5 still missed rk817-battery despite its type-based discovery. Strip CR/LF explicitly before trimming and matching.
+
+The earlier host fixture used broader trim semantics and masked this failure. New fixtures link the actual production StringUtil and FileSystemUtil with real symlinked files. Preserved V5 fails LF/CRLF cases and passes the no-newline control; the corrected source passes eleven query/GUI cases, 1080 render cases and three theme cases.
+
+An isolated AArch64 incremental build passes with unchanged dependencies and byte-identical retained V3/V4/V5 trees. Physical acceptance is pending.
+---
+ es-core/src/platform.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/es-core/src/platform.cpp b/es-core/src/platform.cpp
+index c59f7de..24111db 100644
+--- a/es-core/src/platform.cpp
++++ b/es-core/src/platform.cpp
+@@ -295,7 +295,9 @@ std::string queryBatteryRootPath()
+ 		auto files = Utils::FileSystem::getDirContent("/sys/class/power_supply");
+ 		for (auto file : files)
+ 		{
+-			auto type = Utils::String::toLower(Utils::String::trim(Utils::FileSystem::readAllText(file + "/type")));
++			auto type = Utils::FileSystem::readAllText(file + "/type");
++			type = Utils::String::toLower(Utils::String::trim(
++				Utils::String::replace(Utils::String::replace(type, "\r", ""), "\n", "")));
+ 			if (type == "battery" || (type.empty() && Utils::String::toLower(file).find("/bat") != std::string::npos))
+ 			{
+ 				batteryRootPath = file;
+-- 
+2.53.0
+
