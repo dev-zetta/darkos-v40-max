@@ -1,3 +1,9 @@
+# V40 mainline development branch, 2026-11-15
+
+Added the signed-source Linux 7.3.4 / 7.3.4-v40.1 RK3326 720x720 port, exact kernel configuration, source locks, author-preserving component patches and private Mesa/SDL runtime staging. The port retains stock-wiring gamepad/panel details, board-specific HP-DAC speaker routing, native RTL8851BU Wi-Fi and original games/saves during the tested migration. PSP buffered rendering and complete CRC-specific FN/SELECT/START mapping were physically confirmed after installation. See ports/v40-mainline for build, deployment, source credits and validation details.
+
+Audio scrambling, software-reboot display repeatability, headphone/wake transitions and broader emulator coverage remain unresolved or unverified. The PL330 diagnostic is optional/default off, and unactivated frontend/performance changes are kept separate. No new downloadable image or fully validated public release is claimed.
+
 # ArkOS4Clone 20260927
 
 ## 1. New Features
