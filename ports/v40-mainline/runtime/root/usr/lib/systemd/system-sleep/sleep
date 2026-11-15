@@ -1,0 +1,3 @@
+#!/bin/bash
+# Keep the board's USB/Wi-Fi workarounds; coordinate media and ALSA in one hook.
+exec /usr/local/sbin/v40max-sleep "$@"

@@ -1,0 +1,102 @@
+{
+  "archive_sha256": "b11b6df8295e8e991ff040b71aaa4994a8b55caa23b6b092907f195b5840fd1f",
+  "pristine_files_checked": 95979,
+  "changes": [
+    {
+      "path": "Documentation/devicetree/bindings/arm/rockchip.yaml",
+      "before_sha256": "376e7078da8988cb50c18677f931d448d74f808847ce3b23b9cdea8e7f766ff8",
+      "after_sha256": "2516301b5b62e77790c90a34e845a363ea6201e99c221105ce00baae74a18575"
+    },
+    {
+      "path": "Documentation/devicetree/bindings/display/panel/v40-port,st7703-720x720.yaml",
+      "before_sha256": null,
+      "after_sha256": "3b5cbf45f98d73f8dc243dc72f6f5b403b4d48aef084635826bd0231fb2f7c2d"
+    },
+    {
+      "path": "Documentation/devicetree/bindings/input/hardkernel,odroid-go3-joypad.yaml",
+      "before_sha256": null,
+      "after_sha256": "d8d06854b4ef3ca06b9bacec9d20bcd355539fec8e888be057e336c460c05c42"
+    },
+    {
+      "path": "Documentation/devicetree/bindings/vendor-prefixes.yaml",
+      "before_sha256": "55d383ba1dfe536df1f619a0141988ab1bfbb3489cf3b880532678fc01e9c720",
+      "after_sha256": "79532b8182740b416f8903bd754e9d4b004e06adf800067ec6a5d4352c9e7c1c"
+    },
+    {
+      "path": "arch/arm64/boot/dts/rockchip/Makefile",
+      "before_sha256": "3d3ad54f905296c152fe923105caf766e00d40d695539771c8f12d10de2ef088",
+      "after_sha256": "2a510030d440fb41b5e83e352565520a1a59c9e95cd3db5bf5fe69dfc29cbe39"
+    },
+    {
+      "path": "arch/arm64/boot/dts/rockchip/rk3326-v40-max.dts",
+      "before_sha256": null,
+      "after_sha256": "0bc8691a110594206089eb59b31820676780353e5c02fa5b61b0b1d6eae378cf"
+    },
+    {
+      "path": "drivers/dma/pl330.c",
+      "before_sha256": "7241bf8e4258b5653480ac6366b6e5b6460e5b323a3ca459e5b428db1719f69b",
+      "after_sha256": "02e20ff1390ee5f0ae29883aa25b2248be8333e638f804dd4ca1eef438874390"
+    },
+    {
+      "path": "drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c",
+      "before_sha256": "022ce514ee2d20ba9151888544f19a2c6e70dc275699bda339410c7e408d80ad",
+      "after_sha256": "d51d152ea500a86bdb34688757de3c00d1caf426f3c968dd0f637b1c4199a07f"
+    },
+    {
+      "path": "drivers/gpu/drm/panel/Kconfig",
+      "before_sha256": "1b8a9a052b11ca0424500cadbde0333a76542ab1c6a4a610d77590da1bb5bc5b",
+      "after_sha256": "4b54294e76634702f38990ada1452174b85c5564382874ed0c270123d2137b88"
+    },
+    {
+      "path": "drivers/gpu/drm/panel/Makefile",
+      "before_sha256": "9ff6ff7c191995c7be2a58832a281252af6931ce73deda745aadea7c8e1246bf",
+      "after_sha256": "265ce3a9fddc8fbbc64664eed7e0b4eeebd85562ede97bfa3409cf81925e991f"
+    },
+    {
+      "path": "drivers/gpu/drm/panel/panel-v40-commands.h",
+      "before_sha256": null,
+      "after_sha256": "718e39a19c3afc3a3cd1dd828eb04c708e7a86f7c773b189bf495f7a0e731711"
+    },
+    {
+      "path": "drivers/gpu/drm/panel/panel-v40-st7703.c",
+      "before_sha256": null,
+      "after_sha256": "457fd62ea1c10058e89dc0f55aff36e153cadc54f0493b8be1c177a6cde22c4e"
+    },
+    {
+      "path": "drivers/input/joystick/Kconfig",
+      "before_sha256": "70fa3c28ea7a3894e77b2af2523e3097e6f8538fd76c9a03366a29c46812616f",
+      "after_sha256": "e4c2fb4be3b3b294e6d195401a51636dce0585f34682f1f17665fcaa6d02ae25"
+    },
+    {
+      "path": "drivers/input/joystick/Makefile",
+      "before_sha256": "5f46d44c4a43c7426061981c20281a2d4bce83e2d1aa9b04c2ade4dd5ddfe668",
+      "after_sha256": "02663b689924576c4ac7594735595e43c241c306bbef250a823bd8b22362d007"
+    },
+    {
+      "path": "drivers/input/joystick/input-polldev-compat.h",
+      "before_sha256": null,
+      "after_sha256": "7ebc6129e10cb34a8b7ef9939ff7c8e9e68d37b96c2afdcd76c4b05ffff5c349"
+    },
+    {
+      "path": "drivers/input/joystick/odroidgo3-joypad.c",
+      "before_sha256": null,
+      "after_sha256": "06758a55712ad10c5ce914182d87391187f3fb6b93640b4ca034c82cfc24cca2"
+    },
+    {
+      "path": "sound/soc/codecs/rk817_codec.c",
+      "before_sha256": "dc2605ada29cab141c5bf9fd9212e07103d9ecdb70c601b27168a7364fa79fa3",
+      "after_sha256": "99d1f97f8c8bedf00123056322bf98a2f1f33685853f08f69db22d1eab8ca573"
+    }
+  ],
+  "version": "7.3.4",
+  "release": "7.3.4-v40.1",
+  "archive_url": "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.3.4.tar.xz",
+  "signature_url": "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.3.4.tar.sign",
+  "signer_fingerprint": "647F28654894E3BD457199BE38DBBDC86092693E",
+  "default_patches": [
+    "0001-v40-board.patch"
+  ],
+  "optional_patches": [
+    "0002-pl330-continuous-diagnostic.patch"
+  ]
+}

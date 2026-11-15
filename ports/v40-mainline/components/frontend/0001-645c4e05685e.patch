@@ -1,0 +1,242 @@
+From 645c4e05685e5b917f387fc34e256de17da294fe Mon Sep 17 00:00:00 2001
+From: Codex <codex@local.invalid>
+Date: Tue, 10 Nov 2026 20:10:39 +0100
+Subject: [PATCH] Quiesce frontend media for board sleep and delegate managed
+ shutdown
+
+---
+ es-app/src/EmulationStation.h |  2 +-
+ es-app/src/FileData.cpp       |  3 ++
+ es-app/src/main.cpp           | 31 ++++++++++++++++++
+ es-core/src/RuntimeMedia.h    | 59 +++++++++++++++++++++++++++++++++++
+ es-core/src/Window.cpp        |  7 ++++-
+ es-core/src/Window.h          |  1 +
+ es-core/src/platform.cpp      |  5 +--
+ 7 files changed, 104 insertions(+), 4 deletions(-)
+ create mode 100644 es-core/src/RuntimeMedia.h
+
+diff --git a/es-app/src/EmulationStation.h b/es-app/src/EmulationStation.h
+index 91d9691..795bcfa 100644
+--- a/es-app/src/EmulationStation.h
++++ b/es-app/src/EmulationStation.h
+@@ -10,7 +10,7 @@
+ #define PROGRAM_VERSION_MAINTENANCE		0
+ #define PROGRAM_VERSION_BUILD			0
+ 
+-#define PROGRAM_VERSION_STRING "2.13.0.0 CHMOD"
++#define PROGRAM_VERSION_STRING "2.13.0.0 CHMOD +v40-runtime1"
+ #define SCRAPER_VERSION_STRING "2.11.0.0"
+ 
+ #define PROGRAM_BUILT_STRING __DATE__ " - " __TIME__
+diff --git a/es-app/src/FileData.cpp b/es-app/src/FileData.cpp
+index 569639a..11c0c21 100644
+--- a/es-app/src/FileData.cpp
++++ b/es-app/src/FileData.cpp
+@@ -1,3 +1,4 @@
++#include "RuntimeMedia.h"
+ #include <string>
+ #include "FileData.h"
+ 
+@@ -283,6 +284,7 @@ void FileData::launchGame(Window* window)
+ 
+ 	bool hideWindow = Settings::getInstance()->getBool("HideWindow");
+ 	window->deinit(hideWindow);
++	RuntimeMedia::external(true);
+ 
+ 	std::string command = getSystemEnvData()->mLaunchCommand;
+ 
+@@ -359,6 +361,7 @@ void FileData::launchGame(Window* window)
+ 
+ 	VolumeControl::getInstance()->init();
+ 	AudioManager::getInstance()->init();	
++	RuntimeMedia::external(false);
+ 	window->normalizeNextUpdate();
+ 
+ 	//update number of times the game has been launched
+diff --git a/es-app/src/main.cpp b/es-app/src/main.cpp
+index 3265e08..11fd858 100644
+--- a/es-app/src/main.cpp
++++ b/es-app/src/main.cpp
+@@ -36,6 +36,8 @@
+ #include "resources/TextureData.h"
+ #include <FreeImage.h>
+ #include "AudioManager.h"
++#include "VolumeControl.h"
++#include "RuntimeMedia.h"
+ #include "NetworkThread.h"
+ #include "scrapers/ThreadedScraper.h"
+ #include "ImageIO.h"
+@@ -694,8 +696,35 @@ int main(int argc, char* argv[])
+ 
+ 	bool running = true;
+ 
++    RuntimeMedia::install();
+ 	while(running)
+ 	{
++        const int mediaRequest = RuntimeMedia::request().exchange(0);
++        if (mediaRequest == 3) { running = false; break; }
++        if (mediaRequest == 1) {
++            RuntimeMedia::lifecycle().suspend([&]() {
++                window.suspendMedia();
++                AudioManager::getInstance()->deinit();
++                VolumeControl::getInstance()->deinit();
++            });
++            RuntimeMedia::publish();
++        } else if (mediaRequest == 2) {
++            RuntimeMedia::lifecycle().resume([&]() {
++                VolumeControl::getInstance()->init();
++                AudioManager::getInstance()->init();
++                window.reactivateGui();
++                window.normalizeNextUpdate();
++                if (Settings::getInstance()->getBool("audio.bgmusic"))
++                    AudioManager::getInstance()->playRandomMusic();
++            });
++            RuntimeMedia::publish();
++            lastTime = SDL_GetTicks();
++        }
++        if (RuntimeMedia::lifecycle().suspended()) {
++            SDL_Delay(20);
++            continue;
++        }
++
+ 		int processStart = SDL_GetTicks();
+ 
+ 		SDL_Event event;
+@@ -806,6 +835,8 @@ int main(int argc, char* argv[])
+ 	FreeImage_DeInitialise();
+ #endif
+ 
++	AudioManager::getInstance()->deinit();
++	VolumeControl::getInstance()->deinit();
+ 	window.deinit(true);
+ 
+ 	processQuitMode();
+diff --git a/es-core/src/RuntimeMedia.h b/es-core/src/RuntimeMedia.h
+new file mode 100644
+index 0000000..8ec207c
+--- /dev/null
++++ b/es-core/src/RuntimeMedia.h
+@@ -0,0 +1,59 @@
++// V40 runtime integration. Main-thread lifecycle; no SDL calls in signal handlers.
++#pragma once
++#include <atomic>
++#include <cstdio>
++#include <cstdlib>
++#include <string>
++#ifdef __linux__
++#include <signal.h>
++#include <unistd.h>
++#endif
++
++namespace RuntimeMedia {
++class Lifecycle {
++public:
++    template<class Close> void suspend(Close close) {
++        if (mState == Active) { close(); mState = Suspended; }
++    }
++    template<class Open> void resume(Open open) {
++        if (mState == Suspended) { open(); mState = Active; }
++    }
++    void external(bool value) { mState = value ? External : Active; }
++    bool suspended() const { return mState == Suspended; }
++    const char* name() const { return mState == Active ? "active" : mState == Suspended ? "suspended" : "external"; }
++private:
++    enum State { Active, Suspended, External };
++    State mState = Active;
++};
++inline Lifecycle& lifecycle() { static Lifecycle state; return state; }
++inline std::atomic<int>& request() { static std::atomic<int> pending(0); return pending; }
++#ifdef __linux__
++static_assert(ATOMIC_INT_LOCK_FREE == 2, "Signal mailbox must be lock-free");
++inline void signalHandler(int signal) { request().store(signal == SIGTERM ? 3 : signal == SIGUSR1 ? 1 : 2, std::memory_order_relaxed); }
++inline void publish() {
++    const char* dir = std::getenv("XDG_RUNTIME_DIR");
++    if (!dir || !std::getenv("ES_MANAGED_SHUTDOWN")) return;
++    const std::string path = std::string(dir) + "/media-state";
++    const std::string temp = path + ".tmp";
++    FILE* file = std::fopen(temp.c_str(), "w");
++    if (!file) return;
++    std::fprintf(file, "%ld %s\n", static_cast<long>(getpid()), lifecycle().name());
++    if (std::fclose(file) == 0) std::rename(temp.c_str(), path.c_str());
++}
++inline void install() {
++    (void) request(); // Initialize before registering asynchronous handlers.
++    struct sigaction action = {};
++    action.sa_handler = signalHandler;
++    sigemptyset(&action.sa_mask);
++    action.sa_flags = SA_RESTART;
++    sigaction(SIGUSR1, &action, nullptr);
++    sigaction(SIGUSR2, &action, nullptr);
++    sigaction(SIGTERM, &action, nullptr);
++    publish();
++}
++#else
++inline void install() {}
++inline void publish() {}
++#endif
++inline void external(bool value) { lifecycle().external(value); publish(); }
++}
+diff --git a/es-core/src/Window.cpp b/es-core/src/Window.cpp
+index 68dc3eb..2397825 100644
+--- a/es-core/src/Window.cpp
++++ b/es-core/src/Window.cpp
+@@ -156,7 +156,7 @@ void Window::reactivateGui()
+ 		peekGui()->updateHelpPrompts();
+ }
+ 
+-void Window::deinit(bool deinitRenderer)
++void Window::suspendMedia()
+ {
+ 	for (auto extra : mScreenExtras)
+ 		extra->onHide();
+@@ -165,6 +165,11 @@ void Window::deinit(bool deinitRenderer)
+ 	for(auto i = mGuiStack.cbegin(); i != mGuiStack.cend(); i++)
+ 		(*i)->onHide();
+ 
++}
++
++void Window::deinit(bool deinitRenderer)
++{
++	suspendMedia();
+ 	if (deinitRenderer)
+ 		InputManager::getInstance()->deinit();
+ 
+diff --git a/es-core/src/Window.h b/es-core/src/Window.h
+index ae8a05d..f0c8b4c 100644
+--- a/es-core/src/Window.h
++++ b/es-core/src/Window.h
+@@ -68,6 +68,7 @@ public:
+ 
+ 	bool init(bool initRenderer);
+ 	void deinit(bool deinitRenderer);
++	void suspendMedia();
+ 
+ 	void normalizeNextUpdate();
+ 
+diff --git a/es-core/src/platform.cpp b/es-core/src/platform.cpp
+index 1221cbc..2f07d33 100644
+--- a/es-core/src/platform.cpp
++++ b/es-core/src/platform.cpp
+@@ -1,3 +1,4 @@
++#include <cstdlib>
+ #include <string>
+ #include <cstring>
+ #include "platform.h"
+@@ -275,12 +276,12 @@ void processQuitMode()
+ 	case QuitMode::REBOOT:
+ 		LOG(LogInfo) << "Rebooting system";
+ 		touch("/tmp/es-sysrestart");
+-		runRestartCommand();
++		if (!std::getenv("ES_MANAGED_SHUTDOWN")) runRestartCommand();
+ 		break;
+ 	case QuitMode::SHUTDOWN:
+ 		LOG(LogInfo) << "Shutting system down";
+ 		touch("/tmp/es-shutdown");
+-		runShutdownCommand();
++		if (!std::getenv("ES_MANAGED_SHUTDOWN")) runShutdownCommand();
+ 		break;
+ 	}
+ }
+-- 
+2.53.0
+

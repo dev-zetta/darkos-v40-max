@@ -1,0 +1,37 @@
+{
+  "date": "2026-11-15",
+  "kernel_release": "7.3.4-v40.1",
+  "kernel_base_image_sha256": "1c0af6ed7e96ad7c30b09a7a149b1db82ff01a85eb89be528ed2c2c6214055c3",
+  "deployed_diagnostic_image_sha256": "164d0ff675ec6c09a6651f3975e4da78d4a8b077480d7fbfe131efdb2d9d1bc6",
+  "deployed_kernel_build_id": "8f3a16ff4ddaf3b8e0e91b81a6e6176574823597",
+  "dtb_sha256": "842f033cab08cc242c7595261d6d4ef59410ac35741376f01df75941205266e3",
+  "config_sha256": "beb6c89e00283fa170a601bf350fb4d84459fdc19e60e7dfbf617ae2ff665cfd",
+  "module_symvers_sha256": "57dc4c79e3f577d636d745ea511b037e309d8bab01267ad9522a2812f9fa9bbf",
+  "exported_symbols": 17383,
+  "retained_modules_checked": 871,
+  "module_import_crcs_checked": 34885,
+  "frontend_source_commit": "f0939909342d95aa3f327dcbf111a9a4f5d15ea9",
+  "frontend_binary_sha256": "74e0c5f9adace11468d4aabb243fc60b0e39fecf48eda72c72a53d10d1042e62",
+  "retained_ppsspp_binary_sha256": "f8fb385b80fde742f194b4e9ca3e984e35c031fdf65267cea61b64c6bca7b886",
+  "alsa_helper_sha256": "d63f2d37b43caac0d5c5b7b9f9d33fe5051f71741de5b1549dfe7e9738cee8de",
+  "public_binary_release": false,
+  "audio_quality_fixed": false,
+  "physical_checks_user_confirmed": [
+    "menu and controls",
+    "display after clean shutdown and power-on",
+    "speaker music with HP DAC route",
+    "AX900 RTL8851BU Wi-Fi and SSH",
+    "PSP image after buffer-effects correction",
+    "PSP FN SELECT START after mapping correction",
+    "SELECT+START game exit"
+  ],
+  "pending": [
+    "audio scrambling",
+    "software reboot display reliability",
+    "headphone transitions",
+    "suspend/wake",
+    "thermal and wider emulator validation"
+  ],
+  "component_port_source_commit": "1e44ac74685659e52ca1db22da6d7b7567714389",
+  "experimental_frontend_source_commit": "0c04597043d63c6ed11d924271595e72d2954aee"
+}

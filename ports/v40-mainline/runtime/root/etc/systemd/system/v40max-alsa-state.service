@@ -1,0 +1,13 @@
+[Unit]
+Description=Store initial ALSA state after the handheld audio path is configured
+After=audiopath.service
+Before=emulationstation.service
+ConditionPathExists=!/var/lib/alsa/asound.state
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/alsactl -f /var/lib/alsa/asound.state store
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,40 @@
+From 8e9ffab6846318e528f98a23e9bb205183f7dbf5 Mon Sep 17 00:00:00 2001
+From: Gabriel Max <dev@zetta.app>
+Date: Sat, 14 Nov 2026 01:22:29 +0100
+Subject: [PATCH] Decouple native sleep acknowledgements from the retained menu
+ power owner
+
+---
+ es-app/src/EmulationStation.h | 2 +-
+ es-core/src/RuntimeMedia.h    | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/es-app/src/EmulationStation.h b/es-app/src/EmulationStation.h
+index 3034df9..c6340f7 100644
+--- a/es-app/src/EmulationStation.h
++++ b/es-app/src/EmulationStation.h
+@@ -10,7 +10,7 @@
+ #define PROGRAM_VERSION_MAINTENANCE		0
+ #define PROGRAM_VERSION_BUILD			0
+ 
+-#define PROGRAM_VERSION_STRING "2.13.0.0 CHMOD +v40-runtime2"
++#define PROGRAM_VERSION_STRING "2.13.0.0 CHMOD +v40-upstream-20261114"
+ #define SCRAPER_VERSION_STRING "2.11.0.0"
+ 
+ #define PROGRAM_BUILT_STRING __DATE__ " - " __TIME__
+diff --git a/es-core/src/RuntimeMedia.h b/es-core/src/RuntimeMedia.h
+index 1ec1890..292902c 100644
+--- a/es-core/src/RuntimeMedia.h
++++ b/es-core/src/RuntimeMedia.h
+@@ -33,7 +33,7 @@ static_assert(ATOMIC_INT_LOCK_FREE == 2, "Signal mailbox must be lock-free");
+ inline void signalHandler(int signal) { request().store(signal == SIGTERM ? 3 : signal == SIGUSR1 ? 1 : 2, std::memory_order_relaxed); }
+ inline void publish() {
+     const char* dir = std::getenv("XDG_RUNTIME_DIR");
+-    if (!dir || !std::getenv("ES_MANAGED_SHUTDOWN")) return;
++    if (!dir || (!std::getenv("ES_MANAGED_SHUTDOWN") && !std::getenv("ES_RUNTIME_MEDIA"))) return;
+     const std::string path = std::string(dir) + "/media-state";
+     const std::string temp = path + ".tmp";
+     FILE* file = std::fopen(temp.c_str(), "w");
+-- 
+2.53.0
+

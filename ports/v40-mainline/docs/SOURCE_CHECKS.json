@@ -1,0 +1,47 @@
+{
+  "passed": true,
+  "kernel_archive_sha256_verified": true,
+  "default_source_preparation": true,
+  "optional_diagnostic_source_preparation": true,
+  "source_files_checked_against_pristine_archive": 95979,
+  "changed_files_default": 16,
+  "changed_files_with_optional_dma": 17,
+  "exact_config_reproduced_with_original_toolchain": true,
+  "config_sha256": "beb6c89e00283fa170a601bf350fb4d84459fdc19e60e7dfbf617ae2ff665cfd",
+  "component_replay": {
+    "passed": true,
+    "network_used": false,
+    "components": [
+      {
+        "component": "frontend",
+        "files": 437,
+        "patches": 8,
+        "accepted_tree_matched": true
+      },
+      {
+        "component": "sdl",
+        "files": 1760,
+        "patches": 1,
+        "accepted_tree_matched": true
+      },
+      {
+        "component": "hotkey",
+        "files": 9,
+        "patches": 2,
+        "accepted_tree_matched": true
+      }
+    ]
+  },
+  "runtime_staging": {
+    "passed": true,
+    "rendered_consumers_match_accepted_v3": true,
+    "source_syntax_checked": true,
+    "source_helpers_syntax_checked": 16
+  },
+  "psp_settings_behavioral_tests": 2,
+  "full_new_image_build": false,
+  "new_hardware_test_in_this_publication_task": false,
+  "user_reported_psp_acceptance": true,
+  "private_device_data_included": false,
+  "publication_files_reviewed": 91
+}

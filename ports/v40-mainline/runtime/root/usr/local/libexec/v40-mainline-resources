@@ -1,0 +1,10 @@
+#!/bin/sh
+# ResourceManager resolves :/ assets beside the relocated frontend executable.
+set -eu
+directory=$1
+for asset in window_icon_256.png opensans_hebrew_condensed_regular.ttf opensans_hebrew_condensed_light.ttf OpenSans-CondBold.ttf fallback.ttf glyphs.ttf; do
+    if [ ! -r "$directory/$asset" ] || [ ! -s "$directory/$asset" ]; then
+        echo "v40-mainline: required frontend resource missing or empty: $directory/$asset" >&2
+        exit 1
+    fi
+done

@@ -1,0 +1,91 @@
+--- a/usr/local/bin/perfmax
++++ b/usr/local/bin/perfmax
+@@ -1,6 +1,63 @@
+ #!/bin/bash
+ printf "\033c" >> /dev/tty1
+ export SDL_VIDEO_EGL_DRIVER=libEGL.so
++
++# Mainline V40 compatibility: preserve the chosen profile and existing frequency cap.
++v40_mainline_gpu_policy() {
++  [[ "$(uname -r)" == "7.3.4-v40.1" ]] &&
++    tr '\0' '\n' < /proc/device-tree/compatible |
++      grep -Fxq 'v40-port,rk3326-handheld'
++}
++
++v40_gpu_write_verify() {
++  local actual
++  if ! printf '%s\n' "$2" > "$1"; then
++    printf 'perfmax: cannot write GPU policy %s\n' "$1" >&2
++    return 1
++  fi
++  if ! actual=$(cat "$1") || [[ "$actual" != "$2" ]]; then
++    printf 'perfmax: GPU policy readback differs for %s\n' "$1" >&2
++    return 1
++  fi
++}
++
++v40_mainline_gpu_performance() {
++  local devfreq="$1" governors frequencies cap frequency maximum=0
++  if ! governors=$(cat "$devfreq/available_governors"); then
++    printf 'perfmax: cannot read available GPU governors\n' >&2
++    return 1
++  fi
++  if [[ " $governors " == *" performance "* ]]; then
++    v40_gpu_write_verify "$devfreq/governor" performance
++    return $?
++  fi
++  if [[ " $governors " != *" userspace "* ]]; then
++    printf 'perfmax: GPU has neither performance nor userspace governor\n' >&2
++    return 1
++  fi
++  if ! frequencies=$(cat "$devfreq/available_frequencies") ||
++     ! cap=$(cat "$devfreq/max_freq") || [[ ! "$cap" =~ ^[1-9][0-9]{0,11}$ ]]; then
++    printf 'perfmax: cannot read a valid GPU frequency table and cap\n' >&2
++    return 1
++  fi
++  for frequency in $frequencies; do
++    if [[ ! "$frequency" =~ ^[1-9][0-9]{0,11}$ ]]; then
++      printf 'perfmax: invalid available GPU frequency\n' >&2
++      return 1
++    fi
++    if (( frequency <= cap && frequency > maximum )); then
++      maximum=$frequency
++    fi
++  done
++  if (( maximum == 0 )); then
++    printf 'perfmax: no supported GPU frequency within the existing cap\n' >&2
++    return 1
++  fi
++  v40_gpu_write_verify "$devfreq/governor" userspace || return 1
++  # The userspace sysfs store applies update_devfreq synchronously. Its readback
++  # verifies the request; thermal limits may still reduce the actual clock.
++  v40_gpu_write_verify "$devfreq/userspace/set_freq" "$maximum"
++}
+ 
+ if [[ "$(tr -d '\0' < /proc/device-tree/compatible)" == *"rk3326"* ]]; then
+   isitrk3326="True"
+@@ -91,7 +148,11 @@
+ chmod 777 /sys/devices/platform/dmc/devfreq/dmc/governor
+ 
+ if [[ "$1" == "kodi" ]]; then
++  if v40_mainline_gpu_policy; then
++    v40_mainline_gpu_performance "/sys/devices/platform/${gpu}.gpu/devfreq/${gpu}.gpu" || exit 1
++  else
+   echo "performance" > /sys/devices/platform/${gpu}.gpu/devfreq/${gpu}.gpu/governor
++  fi
+   echo "performance" > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor
+   echo "performance" > /sys/devices/platform/dmc/devfreq/dmc/governor
+ elif [[ "$1" == "powersave" ]]; then
+@@ -102,7 +163,11 @@
+   echo "userspace" > /sys/devices/platform/dmc/devfreq/dmc/governor
+   echo "${usr_dmc_speed}" | sudo tee  /sys/devices/platform/dmc/devfreq/dmc/userspace/set_freq > /dev/null &
+ elif [[ "$1" != "ondemand" ]]; then
+-  echo "$1" > /sys/devices/platform/${gpu}.gpu/devfreq/${gpu}.gpu/governor
++  if [[ "$1" == "performance" ]] && v40_mainline_gpu_policy; then
++    v40_mainline_gpu_performance "/sys/devices/platform/${gpu}.gpu/devfreq/${gpu}.gpu" || exit 1
++  else
++    echo "$1" > /sys/devices/platform/${gpu}.gpu/devfreq/${gpu}.gpu/governor
++  fi
+   echo "$1" > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor
+   echo "$1" > /sys/devices/platform/dmc/devfreq/dmc/governor
+ else

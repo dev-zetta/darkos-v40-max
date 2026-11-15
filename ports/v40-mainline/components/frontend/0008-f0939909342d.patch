@@ -1,0 +1,91 @@
+From f0939909342d95aa3f327dcbf111a9a4f5d15ea9 Mon Sep 17 00:00:00 2001
+From: Gabriel Max <dev@zetta.app>
+Date: Sun, 15 Nov 2026 12:36:36 +0100
+Subject: [PATCH] Reject capture controls when selecting playback mixer
+
+Validate preferred and fallback elements with the same active playback filter, excluding capture-labelled generic gain controls observed on RK817. Retain the validated fallback element and update its displayed name without leaking a stale mixer index.
+
+Validation: nine actual-method mocked ALSA cases and AArch64 cross build. Physical speaker playback remains under investigation.
+---
+ es-core/src/VolumeControl.cpp | 38 +++++++++++++++++++++--------------
+ 1 file changed, 23 insertions(+), 15 deletions(-)
+
+diff --git a/es-core/src/VolumeControl.cpp b/es-core/src/VolumeControl.cpp
+index 4e5a469..2d49701 100644
+--- a/es-core/src/VolumeControl.cpp
++++ b/es-core/src/VolumeControl.cpp
+@@ -1,3 +1,5 @@
++#include <algorithm>
++#include <cctype>
+ #include <string>
+ #include "VolumeControl.h"
+ 
+@@ -64,6 +66,18 @@ void VolumeControl::init()
+ 	//try to open mixer device
+ 	if (mixerHandle == nullptr)
+ 	{
++		auto isPlaybackVolume = [](snd_mixer_elem_t* elem) {
++			if (elem == nullptr || snd_mixer_selem_is_active(elem) == 0 ||
++				snd_mixer_selem_has_playback_volume(elem) == 0)
++				return false;
++
++			// ALSA also exposes generic capture gains as playback-capable volume.
++			std::string name = snd_mixer_selem_get_name(elem);
++			std::transform(name.begin(), name.end(), name.begin(),
++				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
++			return name.find("capture") == std::string::npos;
++		};
++
+ 		// Allow users to override the AudioCard and MixerName in es_settings.cfg
+ 		auto audioCard = Settings::getInstance()->getString("AudioCard");
+ 		if (!audioCard.empty())
+@@ -95,37 +109,31 @@ void VolumeControl::init()
+ 						LOG(LogDebug) << "VolumeControl::init() - Loaded mixer elements";
+ 						//ok. find elements now
+ 						mixerElem = snd_mixer_find_selem(mixerHandle, mixerSelemId);
+-						if (mixerElem != nullptr)
++						if (isPlaybackVolume(mixerElem))
+ 						{
+ 							//wohoo. good to go...
+ 							LOG(LogDebug) << "VolumeControl::init() - Mixer initialized";
+ 						}
+ 						else
+ 						{
+-							LOG(LogInfo) << "VolumeControl::init() - Unable to find mixer " << mixerName << " -> Search for alternative mixer";
++							LOG(LogInfo) << "VolumeControl::init() - No active playback volume for mixer " << mixerName << " -> Search for alternative mixer";
++							mixerElem = nullptr;
+ 
+ 							snd_mixer_selem_id_t *mxid = nullptr;
+ 							snd_mixer_selem_id_alloca(&mxid);
+ 
+ 							for (snd_mixer_elem_t* mxe = snd_mixer_first_elem(mixerHandle); mxe != nullptr; mxe = snd_mixer_elem_next(mxe))
+ 							{
+-								if (snd_mixer_selem_has_playback_volume(mxe) != 0 && snd_mixer_selem_is_active(mxe) != 0)
++								if (isPlaybackVolume(mxe))
+ 								{
+ 									snd_mixer_selem_get_id(mxe, mxid);
+ 									mixerName = snd_mixer_selem_id_get_name(mxid);
++									mixerElem = mxe;
+ 
+-									LOG(LogInfo) << "mixername : " << mixerName;
+-
+-									snd_mixer_selem_id_set_name(mixerSelemId, mixerName.c_str());
+-									mixerElem = snd_mixer_find_selem(mixerHandle, mixerSelemId);
+-									if (mixerElem != nullptr)
+-									{
+-										//wohoo. good to go...
+-										LOG(LogDebug) << "VolumeControl::init() - Mixer initialized";
+-										break;
+-									}
+-									else
+-										LOG(LogDebug) << "VolumeControl::init() - Mixer not initialized";
++									// Keep the sound settings menu in sync with the usable control.
++									Settings::getInstance()->setString("AudioDevice", mixerName);
++									LOG(LogInfo) << "VolumeControl::init() - Using playback mixer " << mixerName;
++									break;
+ 								}
+ 							}
+ 
+-- 
+2.53.0
+

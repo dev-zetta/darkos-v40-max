@@ -1,0 +1,91 @@
+From 0c04597043d63c6ed11d924271595e72d2954aee Mon Sep 17 00:00:00 2001
+From: Gabriel Max <dev@zetta.app>
+Date: Sun, 15 Nov 2026 21:40:20 +0100
+Subject: [PATCH] Defer music transitions from mixer callbacks to the UI thread
+
+Keep the music-finished hook to an atomic notification and cancel it only after synchronizing hook removal. Record the bounded build and fixture evidence; this candidate remains staged and is not the physically accepted V3 frontend.
+---
+ V40_AUDIO_CALLBACK.md        |  7 +++++++
+ es-core/src/AudioManager.cpp | 21 +++++++++++++++++----
+ 2 files changed, 24 insertions(+), 4 deletions(-)
+ create mode 100644 V40_AUDIO_CALLBACK.md
+
+diff --git a/V40_AUDIO_CALLBACK.md b/V40_AUDIO_CALLBACK.md
+new file mode 100644
+index 0000000..6f92c12
+--- /dev/null
++++ b/V40_AUDIO_CALLBACK.md
+@@ -0,0 +1,7 @@
++# Audio callback candidate
++
++This branch moves playlist scanning, song loading/freeing and application-state updates out of SDL_mixer's music-finished callback. The callback only sets an atomic notification; AudioManager::update consumes it on the UI thread. Removing the hook precedes cancelling the notification so an in-flight callback cannot reassert a stale request after stopMusic.
++
++The complete production AudioManager source passed eight behavioral fixture cases. The accepted V3 source is a negative control for callback-thread work, and a mutation reversing hook removal and flag clearing fails cancellation coverage. An AArch64 build completed with unchanged dynamic-library dependencies; its callback contains no function calls. This is bounded software evidence, not proof of physical audio quality.
++
++The built V4 candidate SHA-256 is 39339a1e77bcc7582958a807751a62de2e79bcac91a0918a0094c79c1feb48ac. It was staged but not activated on the handheld. The physically accepted frontend remains parent commit f0939909342d95aa3f327dcbf111a9a4f5d15ea9 with binary SHA-256 74e0c5f9adace11468d4aabb243fc60b0e39fecf48eda72c72a53d10d1042e62. This track-transition correction does not establish a fix for navigation clicks, preview mixing or PSP audio scrambling.
+diff --git a/es-core/src/AudioManager.cpp b/es-core/src/AudioManager.cpp
+index 2795cf2..c84bdac 100644
+--- a/es-core/src/AudioManager.cpp
++++ b/es-core/src/AudioManager.cpp
+@@ -1,4 +1,5 @@
+ #include <string>
++#include <atomic>
+ #include "AudioManager.h"
+ 
+ #include "Log.h"
+@@ -18,6 +19,9 @@
+ std::vector<std::shared_ptr<Sound>> AudioManager::sSoundVector;
+ std::shared_ptr<AudioManager> AudioManager::sInstance;
+ 
++// The mixer callback only signals completion; playlist and UI state stay on the UI thread.
++static std::atomic<bool> sMusicFinished(false);
++
+ AudioManager::AudioManager() : mCurrentMusic(NULL), mInitialized(false), mMusicVolume(MIX_MAX_VOLUME), mVideoPlaying(false)
+ {	
+ 	init();
+@@ -226,15 +230,18 @@ void AudioManager::playMusic(std::string path)
+ 
+ void AudioManager::onMusicFinished() 
+ {
+-	AudioManager::getInstance()->playRandomMusic(false);
++	sMusicFinished.store(true, std::memory_order_relaxed);
+ }
+ 
+ void AudioManager::stopMusic() 
+ {
++	// Removing the hook waits for an in-flight callback before cancelling its notification.
++	Mix_HookMusicFinished(nullptr);
++	sMusicFinished.store(false, std::memory_order_relaxed);
++
+ 	if (mCurrentMusic == NULL)
+ 		return;
+ 	
+-	Mix_HookMusicFinished(nullptr);
+ 	Mix_HaltMusic();
+ 	Mix_FreeMusic(mCurrentMusic);
+ 	
+@@ -298,7 +305,13 @@ void AudioManager::setVideoPlaying(bool state)
+ 
+ void AudioManager::update(int deltaTime)
+ {
+-	if (sInstance == nullptr || !sInstance->mInitialized || !Settings::getInstance()->getBool("audio.bgmusic"))
++	if (sInstance == nullptr || !sInstance->mInitialized)
++		return;
++
++	if (sMusicFinished.exchange(false, std::memory_order_relaxed))
++		sInstance->playRandomMusic(false);
++
++	if (!Settings::getInstance()->getBool("audio.bgmusic"))
+ 		return;
+ 
+ 	float deltaVol = deltaTime / 8.0f;
+@@ -321,4 +334,4 @@ void AudioManager::update(int deltaTime)
+ 
+ 		Mix_VolumeMusic((int)sInstance->mMusicVolume);
+ 	}
+-}
+\ No newline at end of file
++}
+-- 
+2.53.0
+

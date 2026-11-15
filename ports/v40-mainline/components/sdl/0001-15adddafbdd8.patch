@@ -1,0 +1,89 @@
+From 15adddafbdd8741c0b183086da93456c275f5aa6 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local.invalid>
+Date: Tue, 10 Nov 2026 20:10:39 +0100
+Subject: [PATCH] Restore valid CRTC state or disable a missing saved
+ framebuffer
+
+---
+ src/video/kmsdrm/SDL_kmsdrmrestore.h | 28 ++++++++++++++++++++++++++++
+ src/video/kmsdrm/SDL_kmsdrmvideo.c   | 21 +++++++++------------
+ 2 files changed, 37 insertions(+), 12 deletions(-)
+ create mode 100644 src/video/kmsdrm/SDL_kmsdrmrestore.h
+
+diff --git a/src/video/kmsdrm/SDL_kmsdrmrestore.h b/src/video/kmsdrm/SDL_kmsdrmrestore.h
+new file mode 100644
+index 0000000..1529014
+--- /dev/null
++++ b/src/video/kmsdrm/SDL_kmsdrmrestore.h
+@@ -0,0 +1,28 @@
++/* V40 fix: a saved CRTC without a live framebuffer must be disabled using
++ * the DRM ABI (no mode or connectors), not restored with an invalid FB ID.
++ * Kept independent of SDL so the actual call policy can be tested. */
++#ifndef SDL_kmsdrmrestore_h_
++#define SDL_kmsdrmrestore_h_
++#include <errno.h>
++#include <xf86drmMode.h>
++typedef int (*V40_SetCrtc)(int, uint32_t, uint32_t, uint32_t, uint32_t,
++                          uint32_t *, int, drmModeModeInfoPtr);
++static inline int V40_RestoreCrtc(V40_SetCrtc set_crtc, int fd,
++                                  const drmModeCrtc *saved, uint32_t connector,
++                                  drmModeModeInfoPtr mode)
++{
++    int result;
++    if (!saved->buffer_id || !saved->mode_valid) {
++        return set_crtc(fd, saved->crtc_id, 0, 0, 0, NULL, 0, NULL);
++    }
++    result = set_crtc(fd, saved->crtc_id, saved->buffer_id, saved->x, saved->y,
++                      &connector, 1, mode);
++    /* The original owner's framebuffer can disappear while another KMS
++       client runs. Release our surface with a valid disable in that case.
++       Permission/master errors remain visible to the caller. */
++    if (result && (errno == ENOENT || errno == EINVAL)) {
++        result = set_crtc(fd, saved->crtc_id, 0, 0, 0, NULL, 0, NULL);
++    }
++    return result;
++}
++#endif
+diff --git a/src/video/kmsdrm/SDL_kmsdrmvideo.c b/src/video/kmsdrm/SDL_kmsdrmvideo.c
+index 8f080c2..319a228 100644
+--- a/src/video/kmsdrm/SDL_kmsdrmvideo.c
++++ b/src/video/kmsdrm/SDL_kmsdrmvideo.c
+@@ -1080,6 +1080,8 @@ static void KMSDRM_GBMDeinit(_THIS, SDL_DisplayData *dispdata)
+     viddata->gbm_init = SDL_FALSE;
+ }
+ 
++#include "SDL_kmsdrmrestore.h"
++
+ static void KMSDRM_DestroySurfaces(_THIS, SDL_Window *window)
+ {
+     SDL_VideoData *viddata = ((SDL_VideoData *)_this->driverdata);
+@@ -1097,19 +1099,14 @@ static void KMSDRM_DestroySurfaces(_THIS, SDL_Window *window)
+     /* original video mode and make it point to the original TTY buffer.   */
+     /***********************************************************************/
+ 
+-    ret = KMSDRM_drmModeSetCrtc(viddata->drm_fd, dispdata->crtc->crtc_id,
+-                                dispdata->crtc->buffer_id, 0, 0, &dispdata->connector->connector_id, 1,
+-                                &dispdata->original_mode);
+-
+-    /* If we failed to set the original mode, try to set the connector prefered mode. */
+-    if (ret && (dispdata->crtc->mode_valid == 0)) {
+-        ret = KMSDRM_drmModeSetCrtc(viddata->drm_fd, dispdata->crtc->crtc_id,
+-                                    dispdata->crtc->buffer_id, 0, 0, &dispdata->connector->connector_id, 1,
+-                                    &dispdata->original_mode);
+-    }
+-
++    ret = V40_RestoreCrtc(KMSDRM_drmModeSetCrtc, viddata->drm_fd,
++                           dispdata->crtc, dispdata->connector->connector_id,
++                           &dispdata->original_mode);
+     if (ret) {
+-        SDL_LogError(SDL_LOG_CATEGORY_VIDEO, "Could not restore CRTC");
++        SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
++                     "Could not restore CRTC %u (saved FB %u, valid mode %d): %s",
++                     dispdata->crtc->crtc_id, dispdata->crtc->buffer_id,
++                     dispdata->crtc->mode_valid, strerror(errno));
+     }
+ 
+     /***************************/
+-- 
+2.53.0
+

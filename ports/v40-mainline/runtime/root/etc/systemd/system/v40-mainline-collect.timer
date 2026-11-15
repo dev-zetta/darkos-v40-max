@@ -1,0 +1,7 @@
+[Unit]
+Description=Collect three V40 mainline boot snapshots
+ConditionKernelCommandLine=v40.mainline=1
+[Timer]
+OnBootSec=15
+OnUnitInactiveSec=60
+Unit=v40-mainline-collect.service

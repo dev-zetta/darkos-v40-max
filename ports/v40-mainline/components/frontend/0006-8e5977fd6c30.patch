@@ -1,0 +1,72 @@
+From 8e5977fd6c30ec4ba93197c749153a274ad3c144 Mon Sep 17 00:00:00 2001
+From: Gabriel Max <dev@zetta.app>
+Date: Sat, 14 Nov 2026 03:19:03 +0100
+Subject: [PATCH] Link the GLES 1 renderer to its standard API and drop unused
+ go2 headers
+
+---
+ CMakeLists.txt                            | 10 +++++-----
+ es-core/src/renderers/Renderer_GLES10.cpp |  2 --
+ 2 files changed, 5 insertions(+), 7 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 62125c5..bbb324c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -100,7 +100,7 @@ if(${GLSystem} MATCHES "Desktop OpenGL")
+     pkg_check_modules(OPENGL REQUIRED gl)
+ else()
+     pkg_check_modules(EGL REQUIRED egl)
+-    pkg_check_modules(GLES2 REQUIRED glesv2)
++    pkg_check_modules(GLES1 REQUIRED glesv1_cm)
+     # Wayland EGL support (required by SDL2's wayland backend)
+     pkg_check_modules(WAYLAND_EGL wayland-egl)
+ endif()
+@@ -210,7 +210,7 @@ elseif(DEFINED VERO4K)
+ elseif(${GLSystem} MATCHES "Desktop OpenGL")
+     LIST(APPEND COMMON_INCLUDE_DIRS ${OPENGL_INCLUDE_DIRS})
+ else()
+-    LIST(APPEND COMMON_INCLUDE_DIRS ${EGL_INCLUDE_DIRS} ${GLES2_INCLUDE_DIRS})
++    LIST(APPEND COMMON_INCLUDE_DIRS ${EGL_INCLUDE_DIRS} ${GLES1_INCLUDE_DIRS})
+ endif()
+ 
+ #-------------------------------------------------------------------------------
+@@ -260,19 +260,19 @@ if(DEFINED BCMHOST)
+     LIST(APPEND COMMON_LIBRARIES
+         bcm_host
+         brcmEGL
+-        ${GLES2_LIBRARIES}
++        ${GLES1_LIBRARIES}
+     )
+ elseif(DEFINED VERO4K)
+     LIST(APPEND COMMON_LIBRARIES
+         ${EGL_LIBRARIES}
+-        ${GLES2_LIBRARIES}
++        ${GLES1_LIBRARIES}
+     )
+ elseif(${GLSystem} MATCHES "Desktop OpenGL")
+     LIST(APPEND COMMON_LIBRARIES ${OPENGL_LIBRARIES})
+ else()
+     LIST(APPEND COMMON_LIBRARIES
+         ${EGL_LIBRARIES}
+-        ${GLES2_LIBRARIES}
++        ${GLES1_LIBRARIES}
+     )
+     # Add wayland-egl for SDL2's wayland backend support
+     if(WAYLAND_EGL_FOUND)
+diff --git a/es-core/src/renderers/Renderer_GLES10.cpp b/es-core/src/renderers/Renderer_GLES10.cpp
+index 1472af0..3856461 100644
+--- a/es-core/src/renderers/Renderer_GLES10.cpp
++++ b/es-core/src/renderers/Renderer_GLES10.cpp
+@@ -14,8 +14,6 @@
+ 
+ //#include <go2/display.h>
+ //#include <go2/input.h>
+-#include <go2/audio.h>
+-#include <drm/drm_fourcc.h>
+ //#include "BatteryIcons.h"
+ //#include "VolumeIcons.h"
+ //#include "WifiIcons.h"
+-- 
+2.53.0
+

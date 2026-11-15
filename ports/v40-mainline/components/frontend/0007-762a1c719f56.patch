@@ -1,0 +1,27 @@
+From 762a1c719f566ed753ad41996d6644d377f2ee43 Mon Sep 17 00:00:00 2001
+From: Gabriel Max <dev@zetta.app>
+Date: Sat, 14 Nov 2026 04:17:14 +0100
+Subject: [PATCH] Request an explicit GLES 1.0 context for the fixed-function
+ renderer
+
+---
+ es-core/src/renderers/Renderer_GLES10.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/es-core/src/renderers/Renderer_GLES10.cpp b/es-core/src/renderers/Renderer_GLES10.cpp
+index 3856461..a58bb9e 100644
+--- a/es-core/src/renderers/Renderer_GLES10.cpp
++++ b/es-core/src/renderers/Renderer_GLES10.cpp
+@@ -91,7 +91,8 @@ namespace Renderer
+ 		SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+ 
+ 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 1);
+-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 0);
++		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
++		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+ //#endif
+ 	} // setupWindow
+ 
+-- 
+2.53.0
+
