@@ -1,7 +1,7 @@
-# Unactivated audio/performance candidates
+# Audio/performance candidates and hardware trial results
 
-These changes passed bounded source/build/fixture checks and were staged, but remain unactivated on the handheld. The default accepted frontend and runtime do not include them.
+These changes passed bounded source/build/fixture checks and were subsequently activated on the handheld. Frontend V4 did not produce an accepted audible improvement. The perfmax candidate encountered two reported system freezes on PSP launch and was rolled back; the previous helper restored successful launch. The default accepted frontend and runtime do not include either candidate. See [the hardware follow-up](../docs/AUDIO_INVESTIGATION_20261115.md).
 
 frontend-audio-callback.patch applies after accepted frontend source f0939909342d95aa3f327dcbf111a9a4f5d15ea9; see FRONTEND_AUDIO.md. perfmax-mainline.patch targets the retained device script SHA-256 22820af9c8dd39095db25484d7adb566b017865795f682c64b89b90bbf7d6f27, not an arbitrary upstream script. It selects a supported mainline GPU userspace maximum within the existing cap only for performance/kodi, retaining an explicit powersave choice. Its 28 Bash fixture checks passed, but legacy CPU/DMC writes and command sequencing are not made atomic by that change.
 
-Do not install either candidate merely because menu, rendering and speaker-routing acceptance passed. Audible menu/game scrambling remains unresolved. The optional PL330 diagnostic is separately controlled by kernel preparation and its default-off parameter.
+The perfmax candidate is unsuitable for routine installation until its freeze regression is resolved. The successful old-helper comparison also reached 480 MHz under simple_ondemand, so the maximum frequency alone is not an established cause. Frontend callback fixture acceptance does not establish a repair for navigation noise or game audio. The optional PL330 diagnostic remains separately controlled by kernel preparation and its default-off parameter.
