@@ -1,6 +1,6 @@
 # Audio follow-up, 2026-11-15
 
-This is the historical V4 trial record. The later [battery/status investigation](BATTERY_STATUS_20261116.md) replaces the frontend and adds focused mainline gauge/DC reporting changes while retaining the unresolved audio findings below.
+This is the historical V4 trial record. The later [battery/status investigation](BATTERY_STATUS_20261116.md) replaces the frontend and adds focused mainline gauge/DC reporting changes while retaining the unresolved audio findings below. The [controlled analog-noise investigation](AUDIO_ANALOG_20261116.md) adds current-kernel zero-PCM, hardware-mute, normal-DAPM power and menu-thread comparisons, and corrects the earlier blanket reserved-register description.
 
 Linux 7.3.4-v40.1 remains installed. Frontend V4 SHA-256 39339a1e77bcc7582958a807751a62de2e79bcac91a0918a0094c79c1feb48ac and its matching integrity consumers were installed and verified; the user reported menu sound unchanged or worse. Menu background music is now disabled by user preference, while debug logging and game sound remain enabled. The default source recipe continues to select V3. No new kernel or codec change was installed during this follow-up.
 

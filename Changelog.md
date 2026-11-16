@@ -1,5 +1,9 @@
 # V40 mainline battery/status follow-up, 2026-11-16
 
+Recorded controlled idle-audio isolation and source research in ports/v40-mainline/docs/AUDIO_ANALOG_20261116.md. Static persisted through verified digital mute and normal codec power-down; physical adapter removal stopped repeating cracks while static remained. Temporary controls were restored. No audio fix or new kernel image is claimed by this investigation checkpoint.
+
+Added USB-C and Bluetooth reference results: USB-C noise remained, while the final audible Bluetooth reference had clean gaps. Documented the separate unresolved shutdown near reported 19 percent, actual UPower thresholds and later PMIC cause snapshot without changing battery protection or calibration.
+
 Added focused RK817 gauge fixes with upstream authorship preserved and optional external-DC GPIO reporting for the tested board. The Linux 7.3.4-v40.1 rebuild preserves the exact configuration and retained module ABI. Frontend battery discovery now supports rk817-battery, voltage_avg and sysfs newlines; battery percentage fits beside Wi-Fi/Bluetooth and appears in the START-menu footer. The user confirmed charging-icon transitions and both percentage displays after installation. Full-cycle battery accuracy and independent audio static/cracks remain unresolved or unverified. See ports/v40-mainline/docs/BATTERY_STATUS_20261116.md for source identities, validation and limits.
 
 # V40 mainline development branch, 2026-11-15

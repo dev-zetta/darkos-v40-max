@@ -1,5 +1,7 @@
 # Battery gauge and status display, 2026-11-16
 
+The subsequent [shutdown near reported 19 percent](BATTERY_SHUTDOWN_20261116.md) remains unresolved. Charging detection and visible percentages are accepted reporting fixes, not full-cycle calibration or proof of a correct shutdown estimate.
+
 The user reported a low battery percentage jumping by twenty or more points on connecting a charger, plus the percentage disappearing beside Wi-Fi. BatteryPlus was disabled/inactive and /tmp/battery.percent absent in the inspected boot, so native RK817 telemetry was the current provider. The 55-percent snapshot matched 1641052/3000000 uAh; learned full capacity 3000 mAh versus design 3380 mAh was within the driver's intended range. Factory capacity, sense resistor, internal resistance and OCV table were copied with the correct unit conversions. No learned-capacity reset or speculative change to those values was made.
 
 During the captured same-boot insertion, native capacity remained 54 percent while voltage rose from about 3.52 V to 3.80 V and current changed from about -0.81 A to +0.64 A. The user reported the idle noise unchanged. A terminal-voltage estimate alone would move by roughly thirty points across that change, but this native running gauge uses a coulomb counter. The reported twenty-point same-boot jump was not reproduced; one capture cannot establish accurate calibration or exclude an intermittent defect.
