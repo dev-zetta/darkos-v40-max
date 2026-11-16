@@ -4,6 +4,8 @@ Recorded controlled idle-audio isolation and source research in ports/v40-mainli
 
 Added USB-C and Bluetooth reference results: USB-C noise remained, while the final audible Bluetooth reference had clean gaps. Documented the separate unresolved shutdown near reported 19 percent, actual UPower thresholds and later PMIC cause snapshot without changing battery protection or calibration.
 
+Recorded the directly read TCS7191CB external amplifier, rejected earlier NS-family guesses, and the actual 4000 mAh battery label versus inherited design/retained FCC values. Noise persisted after battery disconnection. The timed WLAN driver-detachment and restoration passed operational checks; its listening result is still pending. No new kernel, battery calibration or amplifier-control GPIO was installed.
+
 Added focused RK817 gauge fixes with upstream authorship preserved and optional external-DC GPIO reporting for the tested board. The Linux 7.3.4-v40.1 rebuild preserves the exact configuration and retained module ABI. Frontend battery discovery now supports rk817-battery, voltage_avg and sysfs newlines; battery percentage fits beside Wi-Fi/Bluetooth and appears in the START-menu footer. The user confirmed charging-icon transitions and both percentage displays after installation. Full-cycle battery accuracy and independent audio static/cracks remain unresolved or unverified. See ports/v40-mainline/docs/BATTERY_STATUS_20261116.md for source identities, validation and limits.
 
 # V40 mainline development branch, 2026-11-15
