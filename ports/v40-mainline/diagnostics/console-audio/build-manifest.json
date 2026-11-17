@@ -1,0 +1,15 @@
+{
+  "source_sha256": "abfb2ff7521ac9a543276a04c078fbe239f3d0bfb6a035e8dd4a2eef1e358170",
+  "binary_sha256": "a9d698829a674735da6f4358f97670f05b38a5edf582d575e0c9940581b65e2a",
+  "builder_image": "sha256:0441574d9a4dfa7a89022cb0f562be20d75b77c5cd22b5f585a1afb50565aa1c",
+  "architecture": "AArch64 little endian PIE",
+  "strict_source_warnings": true,
+  "target_library": "1.2.14",
+  "dynamic_binding_check": true,
+  "host_arm64_wave_bytes_identical": true,
+  "drain_retry": "bounded 10ms sleep then retry nonblocking drain; original error/deadline gates retained",
+  "status": "built-runtime-selftest-verified-staged-not-played",
+  "standalone_playback_started": false,
+  "hardware_noise_acceptance": null,
+  "source_relative_path": "v40-audio-test.c"
+}

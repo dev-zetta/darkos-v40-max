@@ -1,5 +1,7 @@
 # Mainline migration status, 2026-11-15
 
+The [standalone console audio diagnostic](AUDIO_CONSOLE_20261117.md) has strict native/ARM64 builds, independent full-stream channel checks and exact ARM64/native generated-PCM agreement. It is staged in RAM with guarded frontend stop/restoration, but standalone playback and noise acceptance remain pending. The earlier media-paused reference hit its playback bound and is retained as an incomplete comparison.
+
 The [2026-11-17 routing audit](AUDIO_ROUTING_20261117.md) confirms that the installed DTB matches the retained compiled artifact and that its audio, PMIC, I2S and pin properties match the running tree. Issue519's vendor amplifier boolean does not apply to the current mainline driver. The inherited output graph remains incomplete, but current HP hardware state, NORMAL buck modes and factory-matching backlight PWM do not establish a configuration fix for the unresolved pop or noise.
 
 The original installation now runs Linux 7.3.4-v40.1 with private Mesa/Panfrost and SDL. The user confirmed a working menu, normal display and controls, speaker music after clean shutdown/power-on, Wi-Fi/SSH, and the latest PSP rendering and FN/SELECT/START correction. Existing games, saves and user settings were preserved during the installation migration. These observations apply to the tested RK3326 720x720 wiring, not all products sold as V40/R36S.

@@ -1,0 +1,19 @@
+# Channel isolation and standalone audio test, 2026-11-17
+
+The user asked whether the single speaker receives mono audio and requested channel isolation, then a standalone console program with EmulationStation fully stopped. Fresh live readback shows stereo S16_LE at 44,100 Hz with both HP DACs active. Codec register `0x38=0x20` selects L/R mode with its digital mixer disabled. The physical external amplifier's input network remains untraced, so the number of speakers does not establish where or how the two channels combine.
+
+The board's custom Playback control reads the left DAC attenuation and writes the same value to both DACs. Giving that control unequal left/right values would therefore not be a valid channel-isolation test. The reference instead supplies zero samples to the unselected channel and preserves the hardware gain and HP route.
+
+## Incomplete first reference
+
+After normal game exit, a continuous 54-source-second stereo WAV ran while frontend media was suspended. It contained left-only, right-only, identical-both and opposite-both sections. All generated phase samples were independently checked. Runtime PCM ownership and the sampled gain/route remained as expected, but PCM progress was slower than the nominal source rate and playback hit its original 65-second bound, cutting the final section short. The original menu and audio registers were verified restored. This is a retained failed/incomplete comparison, not completed channel or audio acceptance.
+
+The user heard beeps, a pause and another group of beeps, with static/cracks still audible. That description does not identify which of the four phases was heard and cannot establish that both channels combine correctly. A shorter reference with lower monitoring overhead was prepared separately but not activated after the user requested the standalone console application. The first observer's CPU cost was not captured on its error path; its repeated register reads are a confound, and the slower reported PCM progress is not labeled a measured physical sample rate or proof of DMA corruption.
+
+## Standalone program preparation
+
+The new [C application](../diagnostics/console-audio/README.md) uses ALSA directly and contains no SDL, video, emulator or mixer code. Its six sections keep one hardware PCM stream open for digital silence and channel-specific beeps. A separate guarded launcher will stop the verified idle frontend, verify process absence and PCM ownership, compare closed-PCM intervals before/after playback, and restore the frontend and original gain/route with an independent recovery timer.
+
+Native compilation passes strict warnings and UBSan. Independent checks examine every one of the generated 2,293,200 stereo frames for silence, channel-zero, equal/opposite and peak invariants. The AArch64 build uses the retained offline compiler image `sha256:0441574d9a4dfa7a89022cb0f562be20d75b77c5cd22b5f585a1afb50565aa1c` and a cached target libasound. Its only ELF dependencies are libasound.so.2, libm.so.6 and libc.so.6; needed symbol versions are ALSA 0.9 and glibc 2.17/2.34. An initial cross-build classified copied third-party headers as project headers and failed on their existing UMP conversion warnings; the corrected build treats those headers as system headers while retaining all strict diagnostics for this source.
+
+On the handheld, all dynamic symbols resolve against ALSA 1.2.14 without playback. Its generated ARM64 raw reference matches the independently checked native output byte for byte, SHA256 `3a71fd735d7f3dc38781e2948956fd794386b98f963908336d894bd262222095`. The application and restoration guard are staged in RAM, but no standalone hardware playback or audible noise result is accepted at this preparation checkpoint. This test does not alter the selected kernel or boot configuration.
