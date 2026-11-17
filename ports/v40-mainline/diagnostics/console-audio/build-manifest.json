@@ -1,6 +1,6 @@
 {
-  "status": "standalone-hardware-comparisons-failed-end-to-end-control-boot-prepared",
-  "current_source_sha256": "6216bbce384bc469401120e0327400a8cc159a62c6e7a790cefccca3f8d64cd7",
+  "status": "standard-dma-boot-verified-short-digital-zero-controls-completed-full-reference-staged",
+  "current_source_sha256": "f3bd31f137d889022285fed639511ad12d633c3d6e72f09ec396de30492d18ef",
   "source_relative_path": "v40-audio-test.c",
   "builder_image": "sha256:0441574d9a4dfa7a89022cb0f562be20d75b77c5cd22b5f585a1afb50565aa1c",
   "architecture": "AArch64 little endian PIE",
@@ -52,7 +52,7 @@
   },
   "observed_alsa_progression_frames_per_raw_second": 29706.36960877591,
   "progression_is_physical_clock_measurement": false,
-  "successful_end_to_end_hardware_run": false,
+  "successful_end_to_end_hardware_run": true,
   "accepted_audio_fix": false,
   "next_boot_control": {
     "purpose": "same-kernel standard PL330 cyclic control after standalone EPIPE/drain failures",
@@ -69,6 +69,240 @@
     "only_difference_from_running_template": "pl330.v40_continuous=1 -> pl330.v40_continuous=0",
     "codec_guard_preserved": true,
     "audio_fix_accepted": false,
-    "boot_acceptance": null
+    "boot_acceptance": {
+      "boot_id": "4ec90cf6-1cc4-4602-91cd-b01027b022bb",
+      "same_image_build_id_verified": true,
+      "pl330_v40_continuous": "N",
+      "codec_guard": "Y",
+      "original_two_period_elf_result": "EPIPE after 7176 frames / 0.243864 seconds"
+    }
+  },
+  "successful_run_scope": "short four-source-second digital silence only; no physical noise acceptance",
+  "full_length_corrected_run_completed": false,
+  "earlier_drain_deadlines": "retained failed test executions; completion detector incorrectly required drain return zero; later status evidence shows SETUP with zero delay despite EAGAIN",
+  "additional_builds": [
+    {
+      "profile": "wait100",
+      "source_sha256": "23cf53d42410fc41bd6a0ab63d47821e29c1dc83b921b0d717dff883251661d8",
+      "binary_sha256": "3198b35cfba247c38c83de90ca39f99d41aae9eea17445fc5bb0600f4504605c",
+      "defines": [
+        "SOURCE_SECONDS=4U",
+        "MAX_SECONDS=15.0"
+      ],
+      "kernel_boot_id": "4ec90cf6-1cc4-4602-91cd-b01027b022bb",
+      "application_end": {
+        "event": "application_end",
+        "result": 2,
+        "written": 11280,
+        "elapsed_raw_seconds": 0.352607,
+        "cpu_seconds": 0.008393,
+        "partial_writes": 7,
+        "waits": 6,
+        "wait_timeouts": 0,
+        "wait_timeout_ms": 100,
+        "wait_seconds": 0.340629,
+        "wait_max_seconds": 0.064725,
+        "write_seconds": 0.000908,
+        "write_max_seconds": 0.000277,
+        "tty_seconds": 0.002076,
+        "xrun_recovery_attempts": 0
+      },
+      "errors": [
+        {
+          "event": "alsa_error",
+          "operation": "snd_pcm_writei",
+          "code": -32
+        }
+      ],
+      "restoration_verified": true,
+      "capture_sha256": "259a344dd140d3c145285d5e489c260f44b334fb0ca4df395224d8f73ba02196"
+    },
+    {
+      "profile": "wait5",
+      "source_sha256": "23cf53d42410fc41bd6a0ab63d47821e29c1dc83b921b0d717dff883251661d8",
+      "binary_sha256": "5e0c9f16eddd480b8a542f54d5d990a2c72d18ec7fffd965b80730bae740db0a",
+      "defines": [
+        "SOURCE_SECONDS=4U",
+        "MAX_SECONDS=15.0",
+        "WAIT_TIMEOUT_MS=5"
+      ],
+      "kernel_boot_id": "4ec90cf6-1cc4-4602-91cd-b01027b022bb",
+      "application_end": {
+        "event": "application_end",
+        "result": 2,
+        "written": 176400,
+        "elapsed_raw_seconds": 15.006369,
+        "cpu_seconds": 0.351037,
+        "partial_writes": 1432,
+        "waits": 1069,
+        "wait_timeouts": 1069,
+        "wait_timeout_ms": 5,
+        "wait_seconds": 5.54992,
+        "wait_max_seconds": 0.006094,
+        "write_seconds": 0.073233,
+        "write_max_seconds": 0.00134,
+        "tty_seconds": 0.002262,
+        "xrun_recovery_attempts": 0
+      },
+      "errors": [
+        {
+          "event": "alsa_error",
+          "operation": "drain_deadline",
+          "code": -110
+        }
+      ],
+      "restoration_verified": true,
+      "capture_sha256": "a333c0d9ffaa1eafc86252b7ea7365ba2a2d162f62773338eeddb33665b826f1"
+    },
+    {
+      "profile": "drain-state",
+      "source_sha256": "e0cab1a49d2446aa2d21db52ef5f8072598fd98f92ffe420eb4055ae4438c462",
+      "binary_sha256": "5ad7f9c8a69795ea8d78f2d2f7088ff8d90215ce22d64f7322f1dc03996d87db",
+      "defines": [
+        "SOURCE_SECONDS=4U",
+        "MAX_SECONDS=15.0",
+        "WAIT_TIMEOUT_MS=5",
+        "WAIT_LOG_LIMIT=16U"
+      ],
+      "kernel_boot_id": "4ec90cf6-1cc4-4602-91cd-b01027b022bb",
+      "application_end": {
+        "event": "application_end",
+        "result": 2,
+        "written": 176400,
+        "elapsed_raw_seconds": 15.001893,
+        "cpu_seconds": 0.335016,
+        "partial_writes": 1320,
+        "waits": 958,
+        "wait_timeouts": 958,
+        "wait_timeout_ms": 5,
+        "wait_seconds": 5.000577,
+        "wait_max_seconds": 0.008248,
+        "write_seconds": 0.069095,
+        "write_max_seconds": 0.000278,
+        "tty_seconds": 0.002209,
+        "xrun_recovery_attempts": 0
+      },
+      "errors": [
+        {
+          "event": "alsa_error",
+          "operation": "drain_deadline",
+          "code": -110
+        }
+      ],
+      "restoration_verified": true,
+      "capture_sha256": "faff6d7c510b1db727c4bdf9d990f9f8aee010abcfdd91071882656262c6fd1c"
+    },
+    {
+      "profile": "drain-fixed",
+      "source_sha256": "fbe66683cc1f7d8e301ea986b8cb1ca7712c6bcf4503cb3fe08255785358fd11",
+      "binary_sha256": "3a9088e7e48f291d96c5f48483415742b6cde099b72524d9c3ab9879b2ab21a5",
+      "defines": [
+        "SOURCE_SECONDS=4U",
+        "MAX_SECONDS=15.0",
+        "WAIT_TIMEOUT_MS=5",
+        "WAIT_LOG_LIMIT=16U"
+      ],
+      "kernel_boot_id": "4ec90cf6-1cc4-4602-91cd-b01027b022bb",
+      "application_end": {
+        "event": "application_end",
+        "result": 0,
+        "written": 176400,
+        "elapsed_raw_seconds": 5.807468,
+        "cpu_seconds": 0.288097,
+        "partial_writes": 1435,
+        "waits": 1052,
+        "wait_timeouts": 1052,
+        "wait_timeout_ms": 5,
+        "wait_seconds": 5.472218,
+        "wait_max_seconds": 0.006208,
+        "write_seconds": 0.073265,
+        "write_max_seconds": 0.000237,
+        "tty_seconds": 0.002959,
+        "xrun_recovery_attempts": 0
+      },
+      "errors": [],
+      "restoration_verified": true,
+      "capture_sha256": "56277c0388b9313016c939e77bf8dfe29f8fa0cc81216d9a754e81150e8a436e"
+    },
+    {
+      "profile": "period-event",
+      "source_sha256": "bcfc752aa2d9367042c38c7261a80de31d56be04e36a4555cf12b38f65d10042",
+      "binary_sha256": "e847a6dd2cb5c48b938b035ac9d0df8364a6da7166cfa9cb7ecd67ccab643942",
+      "defines": [
+        "SOURCE_SECONDS=4U",
+        "MAX_SECONDS=15.0",
+        "WAIT_TIMEOUT_MS=100",
+        "WAIT_LOG_LIMIT=16U",
+        "PERIOD_EVENT=1"
+      ],
+      "kernel_boot_id": "4ec90cf6-1cc4-4602-91cd-b01027b022bb",
+      "application_end": {
+        "event": "application_end",
+        "result": 0,
+        "written": 176400,
+        "elapsed_raw_seconds": 5.860288,
+        "cpu_seconds": 0.06773,
+        "partial_writes": 162,
+        "waits": 171,
+        "wait_timeouts": 0,
+        "wait_timeout_ms": 100,
+        "wait_seconds": 5.736328,
+        "wait_max_seconds": 0.036505,
+        "write_seconds": 0.012373,
+        "write_max_seconds": 0.000125,
+        "tty_seconds": 0.002101,
+        "xrun_recovery_attempts": 0
+      },
+      "errors": [],
+      "restoration_verified": true,
+      "capture_sha256": "03e052e900704f399f7c297d41ea0726372215d83addbc1b3b5ec749a0cf100e"
+    },
+    {
+      "profile": "whole-period",
+      "source_sha256": "cb8ce0b5517bd394179c6009e3acc2eb4d5e5fdbf140e0babe68e4c2eef6e286",
+      "binary_sha256": "f45147ff9018690dbc5b568a021c900e3c72bee94aec33ee09a9b5110b2e8f94",
+      "defines": [
+        "SOURCE_SECONDS=4U",
+        "MAX_SECONDS=15.0",
+        "WAIT_TIMEOUT_MS=100",
+        "WAIT_LOG_LIMIT=16U",
+        "WHOLE_PERIOD_WRITES=1"
+      ],
+      "kernel_boot_id": "4ec90cf6-1cc4-4602-91cd-b01027b022bb",
+      "application_end": {
+        "event": "application_end",
+        "result": 0,
+        "written": 176400,
+        "elapsed_raw_seconds": 5.84828,
+        "cpu_seconds": 0.060745,
+        "partial_writes": 0,
+        "waits": 171,
+        "wait_timeouts": 0,
+        "wait_timeout_ms": 100,
+        "wait_seconds": 5.72393,
+        "wait_max_seconds": 0.03533,
+        "write_seconds": 0.006234,
+        "write_max_seconds": 0.000135,
+        "tty_seconds": 0.002058,
+        "xrun_recovery_attempts": 0
+      },
+      "errors": [],
+      "restoration_verified": true,
+      "capture_sha256": "fe65d5647b383c325b8d37293a59aa2b3e39ef5f3fc4887afde2630b8285938e"
+    },
+    {
+      "profile": "aligned-full",
+      "source_sha256": "f3bd31f137d889022285fed639511ad12d633c3d6e72f09ec396de30492d18ef",
+      "binary_sha256": "205d27665eb44026706204de3f2c890221a83b580e9b458f415506e4da45b456",
+      "defines": [],
+      "kernel_boot_id": "4ec90cf6-1cc4-4602-91cd-b01027b022bb",
+      "runtime_result": "staged only; awaiting listening readiness"
+    }
+  ],
+  "cpu_latency_control": {
+    "binary_sha256": "3198b35cfba247c38c83de90ca39f99d41aae9eea17445fc5bb0600f4504605c",
+    "request_us": 0,
+    "restored_effective_value": 2000000000,
+    "result": "EPIPE; request released; no fix"
   }
 }
