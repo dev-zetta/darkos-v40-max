@@ -32,6 +32,12 @@ The factory and working BSP trees explicitly request initial mode NORMAL for the
 
 Factory and current backlight declarations use the same 40,000 ns period, normal polarity and default level 80 of 160. Runtime PWM readback confirms 20,000/40,000 ns at that level, equivalent to 25 kHz. No backlight-frequency mismatch was found. Regulator-framework voltages and nominal supply names are software reports, not electrical measurements of the amplifier supply or battery.
 
+## Remaining driver-sequencing difference
+
+The nearest retained BSP codec has a delayed DAC-bias, digital-clock and APLL restart sequence; its [later safety change](https://github.com/jokubasver/arkos.bsp.4.4/commit/ccf58037b2b2df54fb73ede6fb89ce4b1f8733b7) adds muting around that restart. Mainline's DAPM supply/register ordering does not reproduce the complete vendor sequence. The currently checked revision and 44.1 kHz PLL values agree, and the volume ceiling is already retained, so this is a lifecycle/order gap rather than a demonstrated missing PLL constant or gain cap. The exact factory codec binary has not been reproduced from source; the nearest BSP is not asserted to be its byte-identical implementation.
+
+The failed DACMT guard tested one redundant digital-unmute writer, not the complete analog bias, charge-pump, output-stage or amplifier sequence. That negative comparison does not establish that all remaining power transitions are correct. A further sequencing test needs a specific predicted transition and controlled audible comparison; the DT identity results alone do not justify changing protection settings, unknown amplifier controls or regulator voltages. In-game sample contents and timing remain a separate unresolved path.
+
 ## Outcome
 
 The optional guard boot is verified as kernel Build ID `ae0578bd8ad04be4b759c32920472861277b2537`, with its parameter enabled and its virtual mute widget active. The user reports a normal menu, the same menu-entry pop, and “Audio plays; noise unchanged” in a game. This is a negative result for that candidate; static and scrambling were not separately quantified in this comparison.
