@@ -1,15 +1,74 @@
 {
-  "source_sha256": "abfb2ff7521ac9a543276a04c078fbe239f3d0bfb6a035e8dd4a2eef1e358170",
-  "binary_sha256": "a9d698829a674735da6f4358f97670f05b38a5edf582d575e0c9940581b65e2a",
+  "status": "standalone-hardware-comparisons-failed-end-to-end-control-boot-prepared",
+  "current_source_sha256": "6216bbce384bc469401120e0327400a8cc159a62c6e7a790cefccca3f8d64cd7",
+  "source_relative_path": "v40-audio-test.c",
   "builder_image": "sha256:0441574d9a4dfa7a89022cb0f562be20d75b77c5cd22b5f585a1afb50565aa1c",
   "architecture": "AArch64 little endian PIE",
-  "strict_source_warnings": true,
   "target_library": "1.2.14",
-  "dynamic_binding_check": true,
   "host_arm64_wave_bytes_identical": true,
-  "drain_retry": "bounded 10ms sleep then retry nonblocking drain; original error/deadline gates retained",
-  "status": "built-runtime-selftest-verified-staged-not-played",
-  "standalone_playback_started": false,
-  "hardware_noise_acceptance": null,
-  "source_relative_path": "v40-audio-test.c"
+  "generated_raw_sha256": "3a71fd735d7f3dc38781e2948956fd794386b98f963908336d894bd262222095",
+  "builds": [
+    {
+      "profile": "two_period",
+      "source_commit": "660407f",
+      "source_sha256": "abfb2ff7521ac9a543276a04c078fbe239f3d0bfb6a035e8dd4a2eef1e358170",
+      "binary_sha256": "a9d698829a674735da6f4358f97670f05b38a5edf582d575e0c9940581b65e2a",
+      "buffer_frames": 2048,
+      "period_frames": 1024,
+      "runtime_result": "EPIPE; no automatic recovery; frontend/gain restored"
+    },
+    {
+      "profile": "four_period",
+      "source_sha256": "6216bbce384bc469401120e0327400a8cc159a62c6e7a790cefccca3f8d64cd7",
+      "binary_sha256": "3760c3e424277705c420383e16a82db89be409197a5b2b0763d66b03a33fff25",
+      "buffer_frames": 4096,
+      "period_frames": 1024,
+      "runtime_result": "all source frames written; drain deadline; frontend/gain restored"
+    }
+  ],
+  "user_observations": {
+    "frontend_off_pcm_closed": "Noise became quieter",
+    "standalone_stream_active_frontend_absent": "Noise still present, similar level"
+  },
+  "small_buffer_result": {
+    "event": "application_end",
+    "result": 2,
+    "written": 7184,
+    "elapsed_raw_seconds": 0.245125,
+    "cpu_seconds": 0.008084,
+    "partial_writes": 5,
+    "waits": 4,
+    "xrun_recovery_attempts": 0
+  },
+  "large_buffer_result": {
+    "event": "application_end",
+    "result": 2,
+    "written": 2293200,
+    "elapsed_raw_seconds": 105.002991,
+    "cpu_seconds": 0.791948,
+    "partial_writes": 1257,
+    "waits": 1121,
+    "xrun_recovery_attempts": 0
+  },
+  "observed_alsa_progression_frames_per_raw_second": 29706.36960877591,
+  "progression_is_physical_clock_measurement": false,
+  "successful_end_to_end_hardware_run": false,
+  "accepted_audio_fix": false,
+  "next_boot_control": {
+    "purpose": "same-kernel standard PL330 cyclic control after standalone EPIPE/drain failures",
+    "kernel_release": "7.3.4-v40.1",
+    "kernel_build_id": "ae0578bd8ad04be4b759c32920472861277b2537",
+    "image": "/boot/mainline/dacmt-ownership-20261117/Image",
+    "image_sha256": "9f62be8d129d363e0ca123bb3ea8ab6358e5abb3484a827a88f58b43b53d387f",
+    "dtb": "/boot/mainline/battery-dc-20261116/rk3326-r36splus-linux.dtb",
+    "dtb_sha256": "7b7f792f6cc5bfd57affb0589bd7f528c08f5d0087dca97f565cdf47ba2da5b3",
+    "initrd_sha256": "e455616b83fd1495aa8fcec2684c26609ae4d25321940c16e9e2079cfda54399",
+    "original_next_boot_sha256": "728822ad0e563c513894b5e0293431a45bb2357d762ed02465b50f565016eea7",
+    "continuous_running_template_sha256": "24378ff2ab0a0498c7fe3578938d526d9a6a9bc61b2d33a9d9a154a64e1c357a",
+    "standard_dma_boot_sha256": "b63f30d786e45fbfae3ca0fe827a73be59cb8d0d14eb1a594bd5e1269477fbfe",
+    "only_difference_from_running_template": "pl330.v40_continuous=1 -> pl330.v40_continuous=0",
+    "codec_guard_preserved": true,
+    "audio_fix_accepted": false,
+    "boot_acceptance": null
+  }
 }

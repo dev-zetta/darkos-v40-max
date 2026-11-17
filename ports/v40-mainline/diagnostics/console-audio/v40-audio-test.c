@@ -16,7 +16,9 @@
 
 #define RATE 44100U
 #define PERIOD 1024U
+#ifndef BUFFER
 #define BUFFER 2048U
+#endif
 #define PEAK 8192
 #define CYCLE (RATE * 2U)
 #define MAX_SECONDS 105.0
@@ -177,7 +179,7 @@ int main(int argc, char **argv) {
     if (argc != 2 && argc != 3) { fprintf(stderr, "Use --selftest, --dump NEW_RAW_FILE, or --run\n"); return 2; }
     initialize();
     if (argc == 2 && strcmp(argv[1], "--selftest") == 0) {
-        printf("{\"event\":\"selftest\",\"library\":\"%s\",\"frames\":%" PRIu64 ",\"source_seconds\":52,\"rate\":%u,\"channels\":2}\n", snd_asoundlib_version(), boundary[6], RATE);
+        printf("{\"event\":\"selftest\",\"library\":\"%s\",\"frames\":%" PRIu64 ",\"source_seconds\":52,\"rate\":%u,\"channels\":2,\"period\":%u,\"buffer\":%u}\n", snd_asoundlib_version(), boundary[6], RATE, PERIOD, BUFFER);
         return 0;
     }
     if (argc == 3 && strcmp(argv[1], "--dump") == 0) return dump_reference(argv[2]);

@@ -1,5 +1,5 @@
 {
-  "status": "candidate-tested-pop-and-overall-noise-unchanged-baseline-selected-for-next-boot",
+  "status": "negative-mute-trial-complete-same-image-selected-for-standard-dma-control",
   "purpose": "optional boot-pop mute-ownership discriminator; not an accepted scrambling fix",
   "base_codec_sha256": "99d1f97f8c8bedf00123056322bf98a2f1f33685853f08f69db22d1eab8ca573",
   "candidate_codec_sha256": "5fd2fd1da7677cd326d3beb8dfdcaaa6c805e8c666520c3c548b4105620b0ef0",
@@ -31,12 +31,12 @@
     "accepted_scrambling_fix": false
   },
   "installation_readback_passed": true,
-  "installed_for_next_boot": false,
+  "installed_for_next_boot": true,
   "initial_installation_selected_for_next_boot": true,
-  "selected_for_next_boot": false,
+  "selected_for_next_boot": true,
   "installed_image": "/boot/mainline/dacmt-ownership-20261117/Image",
   "diagnostic_boot_sha256": "24378ff2ab0a0498c7fe3578938d526d9a6a9bc61b2d33a9d9a154a64e1c357a",
-  "selected_boot_sha256": "728822ad0e563c513894b5e0293431a45bb2357d762ed02465b50f565016eea7",
+  "selected_boot_sha256": "b63f30d786e45fbfae3ca0fe827a73be59cb8d0d14eb1a594bd5e1269477fbfe",
   "running_kernel_unchanged_at_install_readback": true,
   "running_baseline_build_id_at_install_readback": "9b073e539870f55bc27441bee8e625b03fafc5ee",
   "running_boot_id_at_install_readback": "a2b7eda5-47d7-4b8d-8a16-7c4a0302ea20",
@@ -78,8 +78,8 @@
   "rollback_execution_target": "verified handheld; not host /boot",
   "rollback_executed": true,
   "rollback_readback_passed": true,
-  "next_boot_image": "/boot/mainline/battery-dc-20261116/Image",
-  "next_boot_image_sha256": "45972b0937bf0e2febd88e2c5ad270f47d8be59ccaf55c416585a4b7f488b573",
+  "next_boot_image": "/boot/mainline/dacmt-ownership-20261117/Image",
+  "next_boot_image_sha256": "9f62be8d129d363e0ca123bb3ea8ab6358e5abb3484a827a88f58b43b53d387f",
   "current_candidate_running_until_next_boot": true,
   "test_image_preserved": true,
   "rollback_runtime_reboot_performed": false,
@@ -93,5 +93,10 @@
     "recorded_boot_references": [],
     "active_image_unchanged": true,
     "restore_before_selecting_old_diagnostic": true
-  }
+  },
+  "next_boot_selection_context": "same currently running kernel and codec guard; continuous DMA disabled only",
+  "baseline_rollback_executed_before_control": true,
+  "new_standard_dma_control_selected_after_rollback": true,
+  "next_boot_dma_parameter": "pl330.v40_continuous=0",
+  "next_boot_hardware_acceptance": null
 }
