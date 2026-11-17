@@ -1,0 +1,128 @@
+--- a/sound/soc/codecs/rk817_codec.c
++++ b/sound/soc/codecs/rk817_codec.c
+@@ -12,11 +12,18 @@
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/regmap.h>
++#include <linux/string.h>
+ #include <sound/core.h>
+ #include <sound/pcm_params.h>
+ #include <sound/soc.h>
+ #include <sound/tlv.h>
+ 
++/* Board-scoped diagnostic; opt in at boot, never through writable sysfs. */
++static bool v40_dacmt_guard;
++module_param(v40_dacmt_guard, bool, 0444);
++MODULE_PARM_DESC(v40_dacmt_guard,
++	"V40-only DAC mute ownership diagnostic (default off)");
++
+ struct rk817_codec_priv {
+ 	struct snd_soc_component *component;
+ 	struct rk808 *rk808;
+@@ -24,6 +31,7 @@
+ 	unsigned int stereo_sysclk;
+ 	bool mic_in_differential;
+ 	bool v40_volume;
++	bool v40_dacmt_guard;
+ 	struct snd_soc_component_driver component_driver;
+ };
+ 
+@@ -231,6 +239,64 @@
+ 	SND_SOC_DAPM_OUTPUT("SPKO"),
+ };
+ 
++static int rk817_v40_dacmt_powerdown(struct snd_soc_dapm_widget *widget,
++				   struct snd_kcontrol *control, int event)
++{
++	struct snd_soc_component *component =
++		snd_soc_dapm_to_component(widget->dapm);
++	int ret;
++
++	if (event != SND_SOC_DAPM_PRE_PMD)
++		return 0;
++
++	ret = snd_soc_component_update_bits(component,
++			RK817_CODEC_DDAC_MUTE_MIXCTL,
++			DACMT_MASK, DACMT_ENABLE);
++	return ret < 0 ? ret : 0;
++}
++
++/*
++ * The normal stream prepare path unmutes after DAPM power-up. Do not let a
++ * supply widget clear the same bit earlier in that sequence. Keep the graph
++ * and its names intact; only this private device's register ownership changes.
++ * Retain an assert-only mute on power-down, including DAPM-only shutdown.
++ */
++static int rk817_v40_dacmt_widgets(struct device *dev,
++				 struct rk817_codec_priv *rk817)
++{
++	struct snd_soc_dapm_widget *widgets;
++	unsigned int i, found = 0;
++
++	if (!v40_dacmt_guard || !rk817->v40_volume)
++		return 0;
++
++	widgets = devm_kmemdup(dev, rk817_dapm_widgets,
++			       sizeof(rk817_dapm_widgets), GFP_KERNEL);
++	if (!widgets)
++		return -ENOMEM;
++
++	for (i = 0; i < ARRAY_SIZE(rk817_dapm_widgets); i++) {
++		if (strcmp(widgets[i].name, "DAC Mute Off"))
++			continue;
++		if (widgets[i].id != snd_soc_dapm_supply ||
++		    widgets[i].reg != RK817_CODEC_DDAC_MUTE_MIXCTL ||
++		    widgets[i].shift != 0 || widgets[i].mask != 1 ||
++		    widgets[i].on_val != 0 || widgets[i].off_val != 1 ||
++		    widgets[i].event || widgets[i].event_flags)
++			return -EINVAL;
++		widgets[i].reg = SND_SOC_NOPM;
++		widgets[i].event = rk817_v40_dacmt_powerdown;
++		widgets[i].event_flags = SND_SOC_DAPM_PRE_PMD;
++		found++;
++	}
++	if (found != 1)
++		return -EINVAL;
++
++	rk817->component_driver.dapm_widgets = widgets;
++	rk817->v40_dacmt_guard = true;
++	return 0;
++}
++
+ static const struct snd_soc_dapm_route rk817_dapm_routes[] = {
+ 
+ 	/* capture path */
+@@ -467,11 +533,22 @@
+ {
+ 	struct rk817_codec_priv *rk817 = snd_soc_component_get_drvdata(component);
+ 	struct rk808 *rk808 = dev_get_drvdata(component->dev->parent);
++	int ret;
+ 
+ 	snd_soc_component_init_regmap(component, rk808->regmap);
+ 	rk817->component = component;
+ 
+-	snd_soc_component_write(component, RK817_CODEC_DTOP_LPT_SRST, 0x40);
++	ret = snd_soc_component_write(component, RK817_CODEC_DTOP_LPT_SRST, 0x40);
++	if (rk817->v40_dacmt_guard) {
++		if (ret < 0)
++			return ret;
++		/* Reset clears DACMT; hold it before initialization and routes. */
++		ret = snd_soc_component_update_bits(component,
++				RK817_CODEC_DDAC_MUTE_MIXCTL,
++				DACMT_MASK, DACMT_ENABLE);
++		if (ret < 0)
++			return ret;
++	}
+ 
+ 	rk817_init(component);
+ 
+@@ -544,6 +621,9 @@
+ 		rk817_codec_data->component_driver.num_controls =
+ 			ARRAY_SIZE(v40_volume_controls);
+ 	}
++	ret = rk817_v40_dacmt_widgets(&pdev->dev, rk817_codec_data);
++	if (ret < 0)
++		return ret;
+ 
+ 	rk817_codec_parse_dt_property(&pdev->dev, rk817_codec_data);
+ 

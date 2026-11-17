@@ -1,0 +1,20 @@
+{
+  "status": "built-and-ABI-verified-not-installed",
+  "purpose": "optional boot-pop mute-ownership discriminator; not an accepted scrambling fix",
+  "base_codec_sha256": "99d1f97f8c8bedf00123056322bf98a2f1f33685853f08f69db22d1eab8ca573",
+  "candidate_codec_sha256": "5fd2fd1da7677cd326d3beb8dfdcaaa6c805e8c666520c3c548b4105620b0ef0",
+  "patch_sha256": "c4686ccce23cb19b7a713e0536a831198ad6db49bae23882e0b0c9bc7f7d2590",
+  "kernel_release": "7.3.4-v40.1",
+  "candidate_build_id": "ae0578bd8ad04be4b759c32920472861277b2537",
+  "candidate_image_sha256": "9f62be8d129d363e0ca123bb3ea8ab6358e5abb3484a827a88f58b43b53d387f",
+  "config_sha256": "beb6c89e00283fa170a601bf350fb4d84459fdc19e60e7dfbf617ae2ff665cfd",
+  "exports_sha256": "57dc4c79e3f577d636d745ea511b037e309d8bab01267ad9522a2812f9fa9bbf",
+  "default_on": false,
+  "opt_in": "snd_soc_rk817.v40_dacmt_guard=1",
+  "private_board_compatible": "v40-port,rk3326-handheld",
+  "retained_modules_verified": 871,
+  "retained_import_crcs_verified": 34885,
+  "host_static_checks": 24,
+  "host_function_cases": 16,
+  "hardware_acceptance": null
+}
