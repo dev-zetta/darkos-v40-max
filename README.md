@@ -1,3 +1,5 @@
+> **V40 Max (720×720) mainline port.** The fork’s Linux 7.3.4 image and installation guide live on the [`v40-mainline-7.3.4` branch](https://github.com/dev-zetta/arkos4clone/blob/v40-mainline-7.3.4/ports/v40-mainline/IMAGE.md). See the [fork’s releases](https://github.com/dev-zetta/arkos4clone/releases) for available downloads.
+
 # (d)ArkOS 4.4 Kernel Porting for Unsupported Devices
 
 Bringing **(d)ArkOS 4.4 kernel** porting to unsupported devices. Contributions via PRs are always welcome.
