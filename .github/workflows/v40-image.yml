@@ -185,7 +185,7 @@ jobs:
           retention-days: 14
 
   publish:
-    if: github.repository == 'dev-zetta/arkos4clone' && startsWith(github.ref, 'refs/tags/v40-image-')
+    if: github.repository_id == '1459250938' && startsWith(github.ref, 'refs/tags/v40-image-')
     runs-on: ubuntu-24.04
     permissions:
       contents: write

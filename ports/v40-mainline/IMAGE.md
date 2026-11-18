@@ -4,7 +4,7 @@ This image targets the tested RK3326 V40 Max board with a 720×720 panel. It use
 
 ## Install and test
 
-1. Download the filesystem image and its checksums from the corresponding [GitHub release](https://github.com/dev-zetta/arkos4clone/releases). For an Actions candidate, use the `v40-bootable-image` artifact from the matching workflow run.
+1. Download the filesystem image and its checksums from the corresponding [GitHub release](https://github.com/dev-zetta/darkos-v40-max/releases). For an Actions candidate, use the `v40-bootable-image` artifact from the matching workflow run.
 2. Download every image part listed in `SHA256SUMS`. Verify the downloaded files with `sha256sum --ignore-missing -c SHA256SUMS`. If the image has numbered chunks, concatenate only its `.img.xz.NNN` parts in ascending order, then decompress the resulting `.img.xz`. Verify the raw `.img` with `sha256sum -c IMAGE-SHA256SUMS`.
 3. Write the raw image to a spare SD card using a raw image writer. Insert it in the V40 Max and power it on from fully off. The card contains a FAT BOOT partition, a Btrfs system partition, and an exFAT EASYROMS partition. Add your own game and BIOS files to EASYROMS.
 4. Confirm that the menu appears, the display and controls work, the speaker plays audio, and a native RTL8851BU Wi-Fi adapter reconnects. For PPSSPP, check the game picture, audio, and FN/SELECT/START. Return to your existing SD card if the test fails.

@@ -1,5 +1,22 @@
 # Sources, authorship and licensing
 
+## Tracking upstream changes
+
+The GitHub fork parent is [lcdyk0517/arkos4clone](https://github.com/lcdyk0517/arkos4clone) on `main`. The Debian-based userspace upstream is [christianhaitian/dArkOS](https://github.com/christianhaitian/dArkOS) on `master`. The repositories have separate Git histories. Fetch both histories and review dArkOS changes individually for compatibility with the V40 image and runtime.
+
+In the maintainer checkout, `origin` tracks the ArkOS4Clone parent, `darkos-upstream` tracks canonical dArkOS, and `fork` points to this repository. To configure the upstream remotes in a fresh clone of this fork, add them under separate names.
+
+```sh
+git remote add --no-tags -t main arkos4clone-upstream https://github.com/lcdyk0517/arkos4clone.git
+git remote add --no-tags -t master darkos-upstream https://github.com/christianhaitian/dArkOS.git
+git fetch --filter=blob:none arkos4clone-upstream
+git fetch --filter=blob:none darkos-upstream
+```
+
+Use `git fetch --filter=blob:none origin` in the maintainer checkout to refresh the ArkOS4Clone parent. Fetching upstream Git refs leaves the released base-image lock in `image-inputs.json` in effect until a reviewed image update changes it.
+
+## Component provenance
+
 The battery follow-up backports the authored RK817 NVRAM-scale and counter-first/rested-OCV fixes carried by ROCKNIX PR3305 at merge bc31d4293ac079e92e391ee737ad47064be82009. Chris Morgan and Jacob Cook's original headers, sign-offs and assistance attribution remain intact in kernel patches 0003 and 0004. The learned-FCC overflow guard and optional DC-input reporting patch are separate local changes. The latter uses the preserved factory GPIO0_B3 and pin bias; it does not import another board's amplifier GPIO or charger power policy. The frontend battery/layout/newline/footer fixes are recorded as separate local commits after the retained author-preserving series. See docs/BATTERY_STATUS_20261116.md and the patch/source locks for exact scope and hashes.
 
 ArkOS4Clone is based on lcdyk0517/arkos4clone. This fork retains upstream history, authors and its MIT license; the starting integration includes the three existing image-cleanup commits rather than flattening them into this port. The frontend derives from lcdyk0517/EmulationStation-fcamod, the hotkey daemon from lcdyk0517/ogage, SDL from libsdl-org/SDL, Linux from kernel.org, and Mesa from Debian's patched 25.0.7-2+deb13u1 source package. Component repository URLs, exact base/accepted commits and author-preserving mail patches are in components/source-lock.json.
