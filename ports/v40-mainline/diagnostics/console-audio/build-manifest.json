@@ -1,5 +1,5 @@
 {
-  "status": "full-reference-duration-attributed-to-slow-physical-i2s-frame-clock",
+  "status": "root-cause-confirmed-with-reversible-fractional-divider-and-gpu-operating-point-tests",
   "current_source_sha256": "f3bd31f137d889022285fed639511ad12d633c3d6e72f09ec396de30492d18ef",
   "source_relative_path": "v40-audio-test.c",
   "builder_image": "sha256:0441574d9a4dfa7a89022cb0f562be20d75b77c5cd22b5f585a1afb50565aa1c",
@@ -441,7 +441,26 @@
     "programmed_clock_snapshots_match": true,
     "cpu_latency_request_restored_us": 17414,
     "summary_sha256": "cf0f17991b53424cd8db3e9cc5bb022e103af92a4bf741221cb2891f59efaf65",
-    "clock_source_cause_verified": false,
-    "audible_playback_verified": false
+    "clock_source_cause_verified": true,
+    "audible_playback_verified": "User heard three beeps from separate original-clock left-only reference. Compliant-clock test used zeros."
+  },
+  "clock_cause_followup": {
+    "running_boot": "7ff12974-b99a-4db5-91c7-30cb18094008",
+    "max_fractional_input_hz": 600000000,
+    "original_fractional_input_hz": 1200000000,
+    "standalone_trial_seconds": {
+      "A1": 15.000622,
+      "B": 12.017522,
+      "A2": 16.587421
+    },
+    "same_open_menu_gpu_opp_lrck_median_hz": {
+      "default_menu": 44147.86857636259,
+      "low_opp_menu": 29206.042537433274,
+      "restored_menu": 44171.46695912849
+    },
+    "summary_sha256": "baec33ab3f16e93bb76e61ec3a2c4c1b68765d28f7dd4aec24cbd08238a8190c",
+    "temporary_modules_unloaded": true,
+    "kernel_taint_after": 4608,
+    "production_fix_installed": false
   }
 }
