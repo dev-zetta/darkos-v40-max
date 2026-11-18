@@ -1,0 +1,26 @@
+{
+  "base_release": "https://github.com/lcdyk0517/arkos4clone/releases/download/20261008",
+  "base_source": "https://github.com/lcdyk0517/arkos4clone/tree/868dc3e",
+  "base_archive": "dArkOS4Clone-20261008.img.xz",
+  "base_xz_size_bytes": 5415323944,
+  "base_archive_sha256": "d49c1fd357313a92ae4de9a3fe79199ee5019b407b6a672bd3b97dfffc9af7ef",
+  "base_image_sha256": "8bcaa1cf4809f8719b387fa585a828c51f67e5ab59a945ade1fba3b388b36377",
+  "base_parts": {
+    "dArkOS4Clone-20261008.img.xz.7z.001": "76f7d0f53da9cf22476b8813b7fcb0e4c3ab5c32744e88804abb773c217a1349",
+    "dArkOS4Clone-20261008.img.xz.7z.002": "56619d076a2969c8c0fb7dadab5325b3bc7b2e46c847d3bd7937de1898513e92",
+    "dArkOS4Clone-20261008.img.xz.7z.003": "96a9566a0b68db8a9416b61b3f3a7ca84bdbbf84fb319711df73e746eca803b7"
+  },
+  "base_license": "https://github.com/christianhaitian/dArkOS/blob/86bac70b51f6264670b95020aa7d3cf2cede622d/LICENSES.md",
+  "bootstrap_dtb_sha256": "1c434940b210be4ffde57f6f7c3eb80e0ec19deb8b001c61d4d50c8d624d74a8",
+  "busybox": {
+    "url": "https://deb.debian.org/debian/pool/main/b/busybox/busybox-static_1.37.0-6+b9_arm64.deb",
+    "sha256": "c833be48abfa16bc19c4966ec93e289ff1ce5d2f1476cad3a57bd105378cd15c"
+  },
+  "realtek_firmware": {
+    "url": "https://archive.ubuntu.com/ubuntu/pool/main/l/linux-firmware-realtek/linux-firmware-realtek_20260319.git217ca6e4-0ubuntu1.2_all.deb",
+    "sha256": "7d79e70a5fa859c4d7581c12a7c2ab0de98c05c67a0ccffb4f223a986cb3f78d",
+    "rtl8851bu_wlan_sha256": "1c4ccb5fa06bf5649146025e95993db66876a1fbc0bd766ec05686587f69c1b7"
+  },
+  "public_bootloader_source": "https://github.com/jokubasver/Clone-u-boot/tree/c1a9798ec3c09e2274f96c9ddd3d0c51144a2004",
+  "rockchip_firmware_source": "https://github.com/rockchip-linux/rkbin/tree/3e288fe814e059dd06833495f845cab04ac20a5c"
+}

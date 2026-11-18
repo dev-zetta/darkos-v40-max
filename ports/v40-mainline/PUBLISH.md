@@ -13,4 +13,6 @@ The fork's [V40 mainline kernel workflow](../../.github/workflows/v40-mainline.y
 
 For a kernel update, wait for a successful V40 workflow run on the exact source commit, then create an annotated tag on that commit. Package the hardware-verified Image and matching DTB with the release manifest, ABI table, kernel config, installation instructions and checksums. Ship the matching upstream source archive, signature, exact patches, configuration, build scripts and licenses as corresponding source alongside it. Verify the uploaded archive digests and tag target before making the release public.
 
-Use [KERNEL_RELEASE.md](KERNEL_RELEASE.md) for the compatibility and rollback boundary and [VALIDATION.md](docs/VALIDATION.md) for the observed hardware behavior. A full OS image release requires a separate build and validation of its userspace and firmware dependencies.
+Use [KERNEL_RELEASE.md](KERNEL_RELEASE.md) for the kernel update compatibility and rollback boundary and [VALIDATION.md](docs/VALIDATION.md) for the observed hardware behavior.
+
+For a full image, the separate [V40 image workflow](../../.github/workflows/v40-image.yml) runs on V40 branch pushes and `v40-image-*` tags. Review the branch run, its checksum-verified artifact and cold-boot results before tagging the same tested source. The tag promotes that exact branch artifact while it remains available. The publish job verifies GitHub's asset digests before publishing a prerelease.

@@ -48,4 +48,6 @@ ENV PATH="/opt/dt-schema/bin:${PATH}"
 
 FROM mainline-builder AS v40-builder
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    libgbm-dev:armhf libasound2-dev:armhf libsamplerate0-dev:armhf && rm -rf /var/lib/apt/lists/*
+    libgbm-dev:armhf libasound2-dev:armhf libsamplerate0-dev:armhf \
+    libfontconfig-dev:arm64 libsdl2-ttf-dev:arm64 nasm pkg-config zlib1g-dev:arm64 \
+    && rm -rf /var/lib/apt/lists/*

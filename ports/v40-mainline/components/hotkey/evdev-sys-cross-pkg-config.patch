@@ -1,0 +1,13 @@
+--- a/build.rs
++++ b/build.rs
+@@ -7,7 +7,9 @@
+ 
+ fn main() -> Result<(), Box<dyn std::error::Error>> {
+ 
+-    if env::var_os("TARGET") == env::var_os("HOST") {
++    if env::var_os("TARGET") == env::var_os("HOST")
++        || env::var_os("PKG_CONFIG_ALLOW_CROSS").as_deref() == Some(std::ffi::OsStr::new("1"))
++    {
+         match pkg_config::find_library("libevdev") {
+             Ok(lib) => {
+                 for path in &lib.include_paths {
