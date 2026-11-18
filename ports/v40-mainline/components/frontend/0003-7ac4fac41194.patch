@@ -1,0 +1,1030 @@
+From 7ac4fac41194690ef5e8cfff931b343860c1ff69 Mon Sep 17 00:00:00 2001
+From: Clio Brando <32285172+cliobrando@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 01:03:37 -0300
+Subject: [PATCH] video: decode H.264 on the Rockchip VPU through MPP, VLC as
+ fallback
+
+Game previews and the video screensaver are 640x480 H.264. libVLC
+decodes them in software: ~110 % of a core on the R36 Ultra, about
+150 % for ES in total while the random-video screensaver runs.
+
+MppVideoPlayer is a second playback backend inside VideoVlcComponent:
+libavformat demuxes, MPP decodes on the VPU (VDPU2 via
+/dev/mpp_service), libswscale converts NV12 to RGBA into the same
+double-buffered VideoContext surfaces the VLC callbacks fill, and the
+audio track is decoded with libavcodec and queued on its own SDL audio
+device. Rendering, theme effects, fit/stretch sizing, looping,
+playlists and the 0.7 s playlist start offset stay in
+VideoVlcComponent and are shared by both backends.
+
+ffmpeg and librockchip_mpp are loaded with dlopen when the first video
+opens, and only if /dev/mpp_service is accessible; any missing library
+or symbol, another codec, or an MPP init failure plays the video
+through VLC exactly as before. Linking them instead made ES load 174
+shared libraries instead of 81 and stall for about a minute on a cold
+power-on.
+
+New setting VideoDecoder: "auto" (default, MPP when possible) or
+"vlc". Build with -DENABLE_MPP_VIDEO=ON (default OFF) and
+ES_VIDEO_DEPS_INCLUDE pointing at the libav*/libsw* and rockchip/
+headers; nothing changes for builds without it.
+
+Measured on the R36 Ultra (6.1 kernel): random-video screensaver
+ES ~150 % -> ~70 % of a core, the MPP decode thread itself ~4 %;
+cold start to main() unchanged (~0.45 s, 81 libraries). A standalone
+MPP decode of a 30 s preview took 1.8 s of CPU against 12.1 s for
+libavcodec, with bit-identical frames.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt                               |  19 +
+ es-core/CMakeLists.txt                       |   2 +
+ es-core/src/Settings.cpp                     |   1 +
+ es-core/src/components/MppVideoPlayer.cpp    | 584 +++++++++++++++++++
+ es-core/src/components/MppVideoPlayer.h      | 100 ++++
+ es-core/src/components/VideoVlcComponent.cpp | 112 +++-
+ es-core/src/components/VideoVlcComponent.h   |   6 +
+ 7 files changed, 799 insertions(+), 25 deletions(-)
+ create mode 100644 es-core/src/components/MppVideoPlayer.cpp
+ create mode 100644 es-core/src/components/MppVideoPlayer.h
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 087f5cf..62125c5 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -84,6 +84,17 @@ else()
+     add_definitions(-DNO_VIDEO_PLAYER)
+ endif()
+ 
++# Hardware video decoding on Rockchip VPUs (MPP), used before VLC when available.
++# ffmpeg and librockchip_mpp are dlopen'ed at the first video, so only their
++# headers are needed here: ES_VIDEO_DEPS_INCLUDE points at the libav*/libsw*
++# and rockchip/ headers.
++option(ENABLE_MPP_VIDEO "Decode H.264 videos on the Rockchip VPU through MPP" OFF)
++if(ENABLE_MPP_VIDEO)
++    set(MPP_VIDEO_LIBRARIES ${CMAKE_DL_LIBS})
++    add_definitions(-DHAVE_MPP)
++    message(STATUS "MPP video decoding enabled")
++endif()
++
+ # OpenGL/EGL dependencies
+ if(${GLSystem} MATCHES "Desktop OpenGL")
+     pkg_check_modules(OPENGL REQUIRED gl)
+@@ -173,6 +184,10 @@ if(VLC_FOUND)
+     LIST(APPEND COMMON_INCLUDE_DIRS ${VLC_INCLUDE_DIRS})
+ endif()
+ 
++if(ENABLE_MPP_VIDEO AND ES_VIDEO_DEPS_INCLUDE)
++    LIST(APPEND COMMON_INCLUDE_DIRS ${ES_VIDEO_DEPS_INCLUDE})
++endif()
++
+ if(CEC_FOUND)
+     LIST(APPEND COMMON_INCLUDE_DIRS ${CEC_INCLUDE_DIRS})
+ endif()
+@@ -229,6 +244,10 @@ if(VLC_FOUND)
+     LIST(APPEND COMMON_LIBRARIES ${VLC_LIBRARIES})
+ endif()
+ 
++if(ENABLE_MPP_VIDEO)
++    LIST(APPEND COMMON_LIBRARIES ${MPP_VIDEO_LIBRARIES})
++endif()
++
+ if(CEC_FOUND)
+     LIST(APPEND COMMON_LIBRARIES ${CEC_LIBRARIES})
+ endif()
+diff --git a/es-core/CMakeLists.txt b/es-core/CMakeLists.txt
+index 4a05db7..efec804 100644
+--- a/es-core/CMakeLists.txt
++++ b/es-core/CMakeLists.txt
+@@ -55,6 +55,7 @@ set(CORE_HEADERS
+ 	${CMAKE_CURRENT_SOURCE_DIR}/src/components/TextEditComponent.h
+ 	${CMAKE_CURRENT_SOURCE_DIR}/src/components/VideoComponent.h
+ 	${CMAKE_CURRENT_SOURCE_DIR}/src/components/VideoPlayerComponent.h
++	${CMAKE_CURRENT_SOURCE_DIR}/src/components/MppVideoPlayer.h
+ 	${CMAKE_CURRENT_SOURCE_DIR}/src/components/VideoVlcComponent.h	
+ 	${CMAKE_CURRENT_SOURCE_DIR}/src/components/MultiLineMenuEntry.h
+ 	${CMAKE_CURRENT_SOURCE_DIR}/src/components/VolumeInfoComponent.h
+@@ -144,6 +145,7 @@ set(CORE_SOURCES
+ 	${CMAKE_CURRENT_SOURCE_DIR}/src/components/TextEditComponent.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/src/components/VideoComponent.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/src/components/VideoPlayerComponent.cpp
++	${CMAKE_CURRENT_SOURCE_DIR}/src/components/MppVideoPlayer.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/src/components/VideoVlcComponent.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/src/components/VolumeInfoComponent.cpp
+ 
+diff --git a/es-core/src/Settings.cpp b/es-core/src/Settings.cpp
+index 94883ec..2b38376 100644
+--- a/es-core/src/Settings.cpp
++++ b/es-core/src/Settings.cpp
+@@ -198,6 +198,7 @@ void Settings::setDefaults()
+ 	mIntMap["ScreenSaverSwapVideoTimeout"] = 30000;
+ 
+ 	mBoolMap["VideoAudio"] = true;
++	mStringMap["VideoDecoder"] = "auto"; // auto: hardware (MPP) when available, else VLC; vlc: always VLC
+ 	mBoolMap["VolumePopup"] = true;
+ 	mBoolMap["VideoLowersMusic"] = true;
+ 	mBoolMap["CaptionsCompatibility"] = true;
+diff --git a/es-core/src/components/MppVideoPlayer.cpp b/es-core/src/components/MppVideoPlayer.cpp
+new file mode 100644
+index 0000000..fa51db3
+--- /dev/null
++++ b/es-core/src/components/MppVideoPlayer.cpp
+@@ -0,0 +1,584 @@
++#ifdef HAVE_MPP
++
++#include "components/MppVideoPlayer.h"
++#include "components/VideoVlcComponent.h"
++#include "Log.h"
++
++#include <chrono>
++#include <vector>
++#include <unistd.h>
++#include <dlfcn.h>
++#include <SDL.h>
++
++extern "C" {
++#include <libavutil/macros.h>
++#include <libavformat/avformat.h>
++#include <libavcodec/avcodec.h>
++#include <libavcodec/bsf.h>
++#include <libavutil/channel_layout.h>
++#include <libswscale/swscale.h>
++#include <libswresample/swresample.h>
++}
++
++#define MODULE_TAG "es_video"	// tags MPP buffer allocations
++#include <rockchip/rk_mpi.h>
++
++
++// ffmpeg and MPP are loaded with dlopen on the first video instead of being
++// linked: linking pulled ~90 extra shared libraries (all of libavcodec's codec
++// dependencies) into every ES start, and ES must still run where they are missing.
++#define MPP_VIDEO_SYMBOLS(X) \
++	X(AVFORMAT, avformat_open_input) \
++	X(AVFORMAT, avformat_find_stream_info) \
++	X(AVFORMAT, av_find_best_stream) \
++	X(AVFORMAT, av_seek_frame) \
++	X(AVFORMAT, av_read_frame) \
++	X(AVFORMAT, avformat_close_input) \
++	X(AVCODEC, av_bsf_get_by_name) \
++	X(AVCODEC, av_bsf_alloc) \
++	X(AVCODEC, av_bsf_init) \
++	X(AVCODEC, av_bsf_send_packet) \
++	X(AVCODEC, av_bsf_receive_packet) \
++	X(AVCODEC, av_bsf_flush) \
++	X(AVCODEC, av_bsf_free) \
++	X(AVCODEC, avcodec_parameters_copy) \
++	X(AVCODEC, avcodec_find_decoder) \
++	X(AVCODEC, avcodec_alloc_context3) \
++	X(AVCODEC, avcodec_parameters_to_context) \
++	X(AVCODEC, avcodec_open2) \
++	X(AVCODEC, avcodec_send_packet) \
++	X(AVCODEC, avcodec_receive_frame) \
++	X(AVCODEC, avcodec_flush_buffers) \
++	X(AVCODEC, avcodec_free_context) \
++	X(AVCODEC, av_packet_alloc) \
++	X(AVCODEC, av_packet_unref) \
++	X(AVCODEC, av_packet_free) \
++	X(AVUTIL, av_frame_alloc) \
++	X(AVUTIL, av_frame_unref) \
++	X(AVUTIL, av_frame_free) \
++	X(AVUTIL, av_rescale_q) \
++	X(SWSCALE, sws_getCachedContext) \
++	X(SWSCALE, sws_scale) \
++	X(SWSCALE, sws_freeContext) \
++	X(SWRESAMPLE, swr_alloc_set_opts2) \
++	X(SWRESAMPLE, swr_init) \
++	X(SWRESAMPLE, swr_get_out_samples) \
++	X(SWRESAMPLE, swr_convert) \
++	X(SWRESAMPLE, swr_free) \
++	X(MPP, mpp_create) \
++	X(MPP, mpp_init) \
++	X(MPP, mpp_destroy) \
++	X(MPP, mpp_packet_init) \
++	X(MPP, mpp_packet_set_pts) \
++	X(MPP, mpp_packet_set_eos) \
++	X(MPP, mpp_packet_deinit) \
++	X(MPP, mpp_frame_get_info_change) \
++	X(MPP, mpp_frame_get_buf_size) \
++	X(MPP, mpp_frame_get_errinfo) \
++	X(MPP, mpp_frame_get_discard) \
++	X(MPP, mpp_frame_get_buffer) \
++	X(MPP, mpp_frame_get_eos) \
++	X(MPP, mpp_frame_deinit) \
++	X(MPP, mpp_frame_get_pts) \
++	X(MPP, mpp_frame_get_width) \
++	X(MPP, mpp_frame_get_height) \
++	X(MPP, mpp_frame_get_hor_stride) \
++	X(MPP, mpp_frame_get_ver_stride) \
++	X(MPP, mpp_buffer_group_get) \
++	X(MPP, mpp_buffer_group_put) \
++	X(MPP, mpp_buffer_group_limit_config) \
++	X(MPP, mpp_buffer_get_ptr_with_caller) \
++	X(MPP, mpp_buffer_sync_begin_f) \
++	X(MPP, mpp_buffer_sync_end_f)
++
++enum VideoLib { AVFORMAT, AVCODEC, AVUTIL, SWSCALE, SWRESAMPLE, MPP, VIDEO_LIB_COUNT };
++
++static const char* const sLibNames[VIDEO_LIB_COUNT] = {
++	"libavformat.so." AV_STRINGIFY(LIBAVFORMAT_VERSION_MAJOR),
++	"libavcodec.so." AV_STRINGIFY(LIBAVCODEC_VERSION_MAJOR),
++	"libavutil.so." AV_STRINGIFY(LIBAVUTIL_VERSION_MAJOR),
++	"libswscale.so." AV_STRINGIFY(LIBSWSCALE_VERSION_MAJOR),
++	"libswresample.so." AV_STRINGIFY(LIBSWRESAMPLE_VERSION_MAJOR),
++	"librockchip_mpp.so.1",
++};
++
++static struct
++{
++#define X(lib, name) decltype(&::name) name;
++	MPP_VIDEO_SYMBOLS(X)
++#undef X
++} sLib;
++
++#define LIB(name) sLib.name
++
++// Loads everything once; false (and VLC playback) if anything is missing.
++static bool loadVideoLibs()
++{
++	static int state = -1; // -1 not tried, 0 failed, 1 loaded
++	if (state >= 0)
++		return state == 1;
++
++	state = 0;
++	void* handles[VIDEO_LIB_COUNT];
++	for (int i = 0; i < VIDEO_LIB_COUNT; i++)
++	{
++		handles[i] = dlopen(sLibNames[i], RTLD_NOW | RTLD_LOCAL);
++		if (!handles[i] && i == MPP)
++			handles[i] = dlopen("librockchip_mpp.so.0", RTLD_NOW | RTLD_LOCAL);
++		if (!handles[i])
++		{
++			LOG(LogInfo) << "MppVideoPlayer: " << sLibNames[i] << " not available, using VLC";
++			return false;
++		}
++	}
++
++#define X(lib, name) \
++	sLib.name = (decltype(sLib.name))dlsym(handles[lib], #name); \
++	if (!sLib.name) { LOG(LogWarning) << "MppVideoPlayer: missing symbol " #name ", using VLC"; return false; }
++	MPP_VIDEO_SYMBOLS(X)
++#undef X
++
++	state = 1;
++	return true;
++}
++
++#define MPP_DEVICE		"/dev/mpp_service"
++#define FRAME_BUFFERS	20		// H.264 DPB (16) + frames in flight
++#define LATE_DROP_MS	100		// frames later than this are skipped instead of shown
++
++static long long nowMs()
++{
++	return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
++}
++
++bool MppVideoPlayer::isAvailable()
++{
++	return access(MPP_DEVICE, R_OK | W_OK) == 0 && loadVideoLibs();
++}
++
++MppVideoPlayer* MppVideoPlayer::open(const std::string& path)
++{
++	if (!isAvailable())
++		return nullptr;
++
++	MppVideoPlayer* player = new MppVideoPlayer();
++	if (!player->openFile(path) || !player->initDecoder())
++	{
++		delete player;
++		return nullptr;
++	}
++
++	return player;
++}
++
++MppVideoPlayer::MppVideoPlayer() :
++	mFormat(nullptr), mBsf(nullptr), mAudioCodec(nullptr), mPacket(nullptr), mAudioFrame(nullptr),
++	mSws(nullptr), mSwr(nullptr), mVideoStream(-1), mAudioStream(-1), mWidth(0), mHeight(0),
++	mMpp(nullptr), mMpi(nullptr), mFrameGroup(nullptr), mFrameEos(false),
++	mAudioDevice(0), mWithAudio(false), mContext(nullptr), mOutWidth(0), mOutHeight(0), mStartTime(0),
++	mClockStart(-1), mFirstPts(0), mStop(false), mEnded(false), mRestart(false)
++{
++}
++
++MppVideoPlayer::~MppVideoPlayer()
++{
++	{
++		std::unique_lock<std::mutex> lock(mLock);
++		mStop = true;
++	}
++	mWake.notify_all();
++
++	if (mThread.joinable())
++		mThread.join();
++
++	if (mAudioDevice)
++		SDL_CloseAudioDevice(mAudioDevice);
++
++	if (mMpp)
++		LIB(mpp_destroy)((MppCtx)mMpp);
++
++	if (mFrameGroup)
++		LIB(mpp_buffer_group_put)((MppBufferGroup)mFrameGroup);
++
++	LIB(sws_freeContext)(mSws);
++	LIB(swr_free)(&mSwr);
++	LIB(av_frame_free)(&mAudioFrame);
++	LIB(av_packet_free)(&mPacket);
++	LIB(avcodec_free_context)(&mAudioCodec);
++	LIB(av_bsf_free)(&mBsf);
++	LIB(avformat_close_input)(&mFormat);
++}
++
++bool MppVideoPlayer::openFile(const std::string& path)
++{
++	if (LIB(avformat_open_input)(&mFormat, path.c_str(), nullptr, nullptr) < 0)
++		return false;
++
++	if (LIB(avformat_find_stream_info)(mFormat, nullptr) < 0)
++		return false;
++
++	mVideoStream = LIB(av_find_best_stream)(mFormat, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
++	if (mVideoStream < 0)
++		return false;
++
++	AVCodecParameters* par = mFormat->streams[mVideoStream]->codecpar;
++	if (par->codec_id != AV_CODEC_ID_H264 || par->width <= 0 || par->height <= 0)
++		return false;
++
++	mWidth = par->width;
++	mHeight = par->height;
++	mAudioStream = LIB(av_find_best_stream)(mFormat, AVMEDIA_TYPE_AUDIO, -1, mVideoStream, nullptr, 0);
++
++	// MPP wants Annex-B start codes; MP4 stores length-prefixed NAL units
++	const AVBitStreamFilter* filter = LIB(av_bsf_get_by_name)("h264_mp4toannexb");
++	if (!filter || LIB(av_bsf_alloc)(filter, &mBsf) < 0)
++		return false;
++
++	LIB(avcodec_parameters_copy)(mBsf->par_in, par);
++	mBsf->time_base_in = mFormat->streams[mVideoStream]->time_base;
++	if (LIB(av_bsf_init)(mBsf) < 0)
++		return false;
++
++	mPacket = LIB(av_packet_alloc)();
++	return mPacket != nullptr;
++}
++
++bool MppVideoPlayer::initDecoder()
++{
++	MppCtx ctx = nullptr;
++	MppApi* mpi = nullptr;
++
++	if (LIB(mpp_create)(&ctx, &mpi) != MPP_OK)
++		return false;
++
++	mMpp = ctx;
++	mMpi = mpi;
++
++	// packets are whole access units from the demuxer, no parsing needed
++	RK_U32 split = 0;
++	mpi->control(ctx, MPP_DEC_SET_PARSER_SPLIT_MODE, &split);
++
++	if (LIB(mpp_init)(ctx, MPP_CTX_DEC, MPP_VIDEO_CodingAVC) != MPP_OK)
++	{
++		LOG(LogWarning) << "MppVideoPlayer: mpp_init failed, falling back to VLC";
++		return false;
++	}
++
++	return true;
++}
++
++bool MppVideoPlayer::initAudio()
++{
++	AVCodecParameters* par = mFormat->streams[mAudioStream]->codecpar;
++	const AVCodec* codec = LIB(avcodec_find_decoder)(par->codec_id);
++	if (!codec)
++		return false;
++
++	mAudioCodec = LIB(avcodec_alloc_context3)(codec);
++	if (!mAudioCodec || LIB(avcodec_parameters_to_context)(mAudioCodec, par) < 0 || LIB(avcodec_open2)(mAudioCodec, codec, nullptr) < 0)
++		return false;
++
++	SDL_AudioSpec want, have;
++	SDL_zero(want);
++	want.freq = mAudioCodec->sample_rate > 0 ? mAudioCodec->sample_rate : 44100;
++	want.format = AUDIO_S16SYS;
++	want.channels = 2;
++	want.samples = 1024;
++
++	mAudioDevice = SDL_OpenAudioDevice(nullptr, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
++	if (!mAudioDevice)
++	{
++		LOG(LogWarning) << "MppVideoPlayer: no audio device: " << SDL_GetError();
++		return false;
++	}
++
++	AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
++	if (LIB(swr_alloc_set_opts2)(&mSwr, &stereo, AV_SAMPLE_FMT_S16, have.freq,
++		&mAudioCodec->ch_layout, mAudioCodec->sample_fmt, mAudioCodec->sample_rate, 0, nullptr) < 0 || LIB(swr_init)(mSwr) < 0)
++		return false;
++
++	mAudioFrame = LIB(av_frame_alloc)();
++	return mAudioFrame != nullptr;
++}
++
++void MppVideoPlayer::start(VideoContext* ctx, int outWidth, int outHeight, bool withAudio, double startTime)
++{
++	mContext = ctx;
++	mOutWidth = outWidth;
++	mOutHeight = outHeight;
++	mStartTime = startTime;
++	mWithAudio = withAudio && hasAudio() && initAudio();
++
++	mThread = std::thread(&MppVideoPlayer::threadProc, this);
++}
++
++void MppVideoPlayer::restart()
++{
++	{
++		std::unique_lock<std::mutex> lock(mLock);
++		mRestart = true;
++	}
++	mWake.notify_all();
++}
++
++void MppVideoPlayer::threadProc()
++{
++	while (!mStop)
++	{
++		playOnce();
++
++		std::unique_lock<std::mutex> lock(mLock);
++		if (mStop)
++			break;
++
++		mEnded = true;
++		mWake.wait(lock, [this] { return mStop || mRestart; });
++		if (mStop)
++			break;
++
++		mRestart = false;
++		mEnded = false;
++		mStartTime = 0;
++		lock.unlock();
++
++		rewind();
++	}
++}
++
++bool MppVideoPlayer::playOnce()
++{
++	if (mStartTime > 0)
++		LIB(av_seek_frame)(mFormat, -1, (int64_t)(mStartTime * AV_TIME_BASE), AVSEEK_FLAG_BACKWARD);
++
++	AVPacket* out = LIB(av_packet_alloc)();
++
++	while (!mStop && LIB(av_read_frame)(mFormat, mPacket) >= 0)
++	{
++		if (mPacket->stream_index == mVideoStream)
++		{
++			if (LIB(av_bsf_send_packet)(mBsf, mPacket) == 0)
++			{
++				while (!mStop && LIB(av_bsf_receive_packet)(mBsf, out) == 0)
++				{
++					sendVideoPacket(out, false);
++					LIB(av_packet_unref)(out);
++				}
++			}
++		}
++		else if (mWithAudio && mPacket->stream_index == mAudioStream)
++			decodeAudio(mPacket);
++
++		LIB(av_packet_unref)(mPacket);
++	}
++
++	LIB(av_packet_free)(&out);
++
++	if (mStop)
++		return false;
++
++	// flush: everything still queued in the decoder is shown before the end
++	sendVideoPacket(nullptr, true);
++	drainFrames(true);
++	return true;
++}
++
++bool MppVideoPlayer::sendVideoPacket(AVPacket* pkt, bool eos)
++{
++	MppCtx ctx = (MppCtx)mMpp;
++	MppApi* mpi = (MppApi*)mMpi;
++
++	MppPacket packet = nullptr;
++	if (pkt)
++	{
++		LIB(mpp_packet_init)(&packet, pkt->data, pkt->size);
++		AVRational tb = mFormat->streams[mVideoStream]->time_base;
++		int64_t pts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts;
++		LIB(mpp_packet_set_pts)(packet, pts != AV_NOPTS_VALUE ? LIB(av_rescale_q)(pts, tb, AVRational{ 1, 1000000 }) : 0);
++	}
++	else
++		LIB(mpp_packet_init)(&packet, nullptr, 0);
++
++	if (eos)
++		LIB(mpp_packet_set_eos)(packet);
++
++	// plain memory packets are copied by MPP, so this buffer can be freed afterwards
++	bool sent = false;
++	while (!mStop)
++	{
++		if (mpi->decode_put_packet(ctx, packet) == MPP_OK)
++		{
++			sent = true;
++			break;
++		}
++
++		// input queue full: take frames out, then retry
++		drainFrames(false);
++		std::this_thread::sleep_for(std::chrono::milliseconds(1));
++	}
++
++	LIB(mpp_packet_deinit)(&packet);
++	drainFrames(false);
++	return sent;
++}
++
++bool MppVideoPlayer::drainFrames(bool waitForEos)
++{
++	MppCtx ctx = (MppCtx)mMpp;
++	MppApi* mpi = (MppApi*)mMpi;
++	long long deadline = nowMs() + 2000;
++
++	while (!mStop)
++	{
++		MppFrame frame = nullptr;
++		MPP_RET ret = mpi->decode_get_frame(ctx, &frame);
++
++		if (ret != MPP_OK || !frame)
++		{
++			if (waitForEos && !mFrameEos && nowMs() < deadline)
++			{
++				std::this_thread::sleep_for(std::chrono::milliseconds(1));
++				continue;
++			}
++			return mFrameEos;
++		}
++
++		if (LIB(mpp_frame_get_info_change)(frame))
++		{
++			// first frame (or a resolution change): give the decoder its frame buffers
++			if (!mFrameGroup)
++			{
++				MppBufferGroup group = nullptr;
++				// cachable: the NV12 -> RGBA conversion reads every pixel on the CPU
++				if (LIB(mpp_buffer_group_get)(&group, (MppBufferType)(MPP_BUFFER_TYPE_ION | MPP_BUFFER_FLAGS_CACHABLE), MPP_BUFFER_INTERNAL, MODULE_TAG, __FUNCTION__) != MPP_OK &&
++					LIB(mpp_buffer_group_get)(&group, MPP_BUFFER_TYPE_ION, MPP_BUFFER_INTERNAL, MODULE_TAG, __FUNCTION__) != MPP_OK)
++				{
++					LOG(LogError) << "MppVideoPlayer: no frame buffer group";
++					LIB(mpp_frame_deinit)(&frame);
++					mStop = true;
++					return false;
++				}
++				mFrameGroup = group;
++			}
++
++			LIB(mpp_buffer_group_limit_config)((MppBufferGroup)mFrameGroup, LIB(mpp_frame_get_buf_size)(frame), FRAME_BUFFERS);
++			mpi->control(ctx, MPP_DEC_SET_EXT_BUF_GROUP, mFrameGroup);
++			mpi->control(ctx, MPP_DEC_SET_INFO_CHANGE_READY, nullptr);
++		}
++		else if (!LIB(mpp_frame_get_errinfo)(frame) && !LIB(mpp_frame_get_discard)(frame) && LIB(mpp_frame_get_buffer)(frame))
++			presentFrame(frame);
++
++		if (LIB(mpp_frame_get_eos)(frame))
++			mFrameEos = true;
++
++		LIB(mpp_frame_deinit)(&frame);
++	}
++
++	return mFrameEos;
++}
++
++void MppVideoPlayer::presentFrame(void* f)
++{
++	MppFrame frame = (MppFrame)f;
++	long long pts = LIB(mpp_frame_get_pts)(frame) / 1000; // ms
++
++	if (mClockStart < 0)
++	{
++		mClockStart = nowMs();
++		mFirstPts = pts;
++		if (mAudioDevice)
++			SDL_PauseAudioDevice(mAudioDevice, 0);
++	}
++
++	long long target = mClockStart + (pts - mFirstPts);
++	long long now = nowMs();
++
++	if (now > target + LATE_DROP_MS)
++		return;
++
++	if (target > now)
++	{
++		std::unique_lock<std::mutex> lock(mLock);
++		mWake.wait_for(lock, std::chrono::milliseconds(target - now), [this] { return mStop.load(); });
++		if (mStop)
++			return;
++	}
++
++	int width = LIB(mpp_frame_get_width)(frame);
++	int height = LIB(mpp_frame_get_height)(frame);
++	int hstride = LIB(mpp_frame_get_hor_stride)(frame);
++	int vstride = LIB(mpp_frame_get_ver_stride)(frame);
++	MppBuffer buffer = LIB(mpp_frame_get_buffer)(frame);
++	unsigned char* base = (unsigned char*)LIB(mpp_buffer_get_ptr_with_caller)(buffer, __FUNCTION__);
++	if (!base)
++		return;
++
++	mSws = LIB(sws_getCachedContext)(mSws, width, height, AV_PIX_FMT_NV12, mOutWidth, mOutHeight, AV_PIX_FMT_RGBA,
++		(width == mOutWidth && height == mOutHeight) ? SWS_POINT : SWS_BILINEAR, nullptr, nullptr, nullptr);
++	if (!mSws)
++		return;
++
++	const uint8_t* src[2] = { base, base + (size_t)hstride * vstride };
++	const int srcStride[2] = { hstride, hstride };
++
++	// same double-buffer protocol as the VLC lock/unlock callbacks
++	VideoContext* c = mContext;
++	int target_surface = c->surfaceId ^ 1;
++	c->mutexes[target_surface].lock();
++	c->hasFrame[target_surface] = false;
++
++	uint8_t* dst[1] = { c->surfaces[target_surface] };
++	const int dstStride[1] = { mOutWidth * 4 };
++
++	LIB(mpp_buffer_sync_begin_f)(buffer, 0, __FUNCTION__);
++	LIB(sws_scale)(mSws, src, srcStride, 0, height, dst, dstStride);
++	LIB(mpp_buffer_sync_end_f)(buffer, 0, __FUNCTION__);
++
++	c->surfaceId = target_surface;
++	c->hasFrame[target_surface] = true;
++	c->mutexes[target_surface].unlock();
++
++	if (c->valid && c->component != nullptr && !c->component->isPlaying() && c->component->isWaitingForVideoToStart())
++		c->component->onVideoStarted();
++}
++
++void MppVideoPlayer::decodeAudio(AVPacket* pkt)
++{
++	if (!mAudioCodec || LIB(avcodec_send_packet)(mAudioCodec, pkt) < 0)
++		return;
++
++	while (LIB(avcodec_receive_frame)(mAudioCodec, mAudioFrame) == 0)
++	{
++		int outSamples = LIB(swr_get_out_samples)(mSwr, mAudioFrame->nb_samples);
++		if (outSamples > 0)
++		{
++			std::vector<uint8_t> buf((size_t)outSamples * 4);
++			uint8_t* out[1] = { buf.data() };
++			int n = LIB(swr_convert)(mSwr, out, outSamples, (const uint8_t**)mAudioFrame->extended_data, mAudioFrame->nb_samples);
++			if (n > 0)
++				SDL_QueueAudio(mAudioDevice, buf.data(), (Uint32)n * 4);
++		}
++		LIB(av_frame_unref)(mAudioFrame);
++	}
++}
++
++void MppVideoPlayer::rewind()
++{
++	LIB(av_seek_frame)(mFormat, mVideoStream, 0, AVSEEK_FLAG_BACKWARD);
++	LIB(av_bsf_flush)(mBsf);
++	((MppApi*)mMpi)->reset((MppCtx)mMpp);
++
++	mFrameEos = false;
++	mClockStart = -1;
++
++	if (mAudioDevice)
++	{
++		SDL_PauseAudioDevice(mAudioDevice, 1);
++		SDL_ClearQueuedAudio(mAudioDevice);
++	}
++	if (mAudioCodec)
++		LIB(avcodec_flush_buffers)(mAudioCodec);
++	if (mSwr)
++		LIB(swr_init)(mSwr);
++}
++
++#endif // HAVE_MPP
+diff --git a/es-core/src/components/MppVideoPlayer.h b/es-core/src/components/MppVideoPlayer.h
+new file mode 100644
+index 0000000..397646a
+--- /dev/null
++++ b/es-core/src/components/MppVideoPlayer.h
+@@ -0,0 +1,100 @@
++#pragma once
++#ifndef ES_CORE_COMPONENTS_MPP_VIDEO_PLAYER_H
++#define ES_CORE_COMPONENTS_MPP_VIDEO_PLAYER_H
++
++#ifdef HAVE_MPP
++
++#include <atomic>
++#include <condition_variable>
++#include <mutex>
++#include <string>
++#include <thread>
++
++struct VideoContext;
++struct AVFormatContext;
++struct AVCodecContext;
++struct AVBSFContext;
++struct AVPacket;
++struct AVFrame;
++struct SwsContext;
++struct SwrContext;
++
++// Hardware H.264 playback for VideoVlcComponent on Rockchip SoCs: libavformat
++// demuxes, MPP decodes on the VPU, libswscale converts NV12 to RGBA into the
++// same double-buffered VideoContext surfaces VLC writes to. Audio (if asked
++// for) is decoded with libavcodec and played on its own SDL audio device.
++class MppVideoPlayer
++{
++public:
++	// Returns nullptr when the file can't be played this way (no VPU access,
++	// not H.264, open error); the caller then falls back to VLC.
++	static MppVideoPlayer* open(const std::string& path);
++	static bool isAvailable();
++
++	~MppVideoPlayer();
++
++	int width() const { return mWidth; }
++	int height() const { return mHeight; }
++	bool hasAudio() const { return mAudioStream >= 0; }
++
++	// Starts the decoder thread. Frames are converted to outWidth x outHeight
++	// RGBA into ctx->surfaces. startTime is in seconds.
++	void start(VideoContext* ctx, int outWidth, int outHeight, bool withAudio, double startTime);
++
++	// True once the last frame has been shown; restart() plays it again.
++	bool ended() const { return mEnded; }
++	void restart();
++
++private:
++	MppVideoPlayer();
++
++	bool openFile(const std::string& path);
++	bool initDecoder();
++	bool initAudio();
++	void threadProc();
++	bool playOnce();
++	bool sendVideoPacket(AVPacket* pkt, bool eos);
++	bool drainFrames(bool waitForEos);
++	void presentFrame(void* frame);
++	void decodeAudio(AVPacket* pkt);
++	void rewind();
++
++	AVFormatContext*	mFormat;
++	AVBSFContext*		mBsf;
++	AVCodecContext*		mAudioCodec;
++	AVPacket*			mPacket;
++	AVFrame*			mAudioFrame;
++	SwsContext*			mSws;
++	SwrContext*			mSwr;
++	int					mVideoStream;
++	int					mAudioStream;
++	int					mWidth;
++	int					mHeight;
++
++	void*				mMpp;		// MppCtx
++	void*				mMpi;		// MppApi*
++	void*				mFrameGroup;	// MppBufferGroup
++	bool				mFrameEos;
++
++	unsigned int		mAudioDevice;	// SDL_AudioDeviceID
++	bool				mWithAudio;
++
++	VideoContext*		mContext;
++	int					mOutWidth;
++	int					mOutHeight;
++	double				mStartTime;
++
++	// wall clock (ms, SDL ticks) at which pts 0 is shown; < 0 until the first frame
++	long long			mClockStart;
++	long long			mFirstPts;
++
++	std::thread			mThread;
++	std::mutex			mLock;
++	std::condition_variable mWake;
++	std::atomic<bool>	mStop;
++	std::atomic<bool>	mEnded;
++	bool				mRestart;
++};
++
++#endif // HAVE_MPP
++#endif // ES_CORE_COMPONENTS_MPP_VIDEO_PLAYER_H
+diff --git a/es-core/src/components/VideoVlcComponent.cpp b/es-core/src/components/VideoVlcComponent.cpp
+index 8678947..30fe1d9 100644
+--- a/es-core/src/components/VideoVlcComponent.cpp
++++ b/es-core/src/components/VideoVlcComponent.cpp
+@@ -12,6 +12,8 @@
+ #include "ThemeData.h"
+ #include <SDL_timer.h>
+ #include "AudioManager.h"
++#include "components/MppVideoPlayer.h"
++#include "Log.h"
+ 
+ 
+ #ifdef WIN32
+@@ -63,6 +65,7 @@ static void display(void* data, void* id)
+ VideoVlcComponent::VideoVlcComponent(Window* window, std::string subtitles) :
+ 	VideoComponent(window),
+ 	mMediaPlayer(nullptr),
++	mMpp(nullptr),
+ 	mMedia(nullptr)
+ {
+ 	mElapsed = 0;
+@@ -447,10 +450,16 @@ void VideoVlcComponent::setupVLC(std::string subtitles)
+ 
+ void VideoVlcComponent::handleLooping()
+ {
++	bool ended = false;
++#ifdef HAVE_MPP
++	if (mIsPlaying && mMpp)
++		ended = mMpp->ended();
++#endif
+ 	if (mIsPlaying && mMediaPlayer)
++		ended = libvlc_media_player_get_state(mMediaPlayer) == libvlc_Ended;
++
+ 	{
+-		libvlc_state_t state = libvlc_media_player_get_state(mMediaPlayer);
+-		if (state == libvlc_Ended)
++		if (ended)
+ 		{
+ 			if (mLoops >= 0)
+ 			{
+@@ -489,6 +498,13 @@ void VideoVlcComponent::handleLooping()
+ 				}
+ 			}
+ 
++#ifdef HAVE_MPP
++			if (mMpp)
++			{
++				mMpp->restart();
++				return;
++			}
++#endif
+ 			if (!Settings::getInstance()->getBool("VideoAudio"))
+ 			{
+ 				libvlc_audio_set_mute(mMediaPlayer, 1);
+@@ -502,6 +518,65 @@ void VideoVlcComponent::handleLooping()
+ 	}
+ }
+ 
++void VideoVlcComponent::limitVideoSize()
++{
++	if (!Settings::getInstance()->getBool("OptimizeVideo"))
++		return;
++
++	// Avoid videos bigger than resolution
++	Vector2f maxSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
++
++#ifdef _RPI_
++	// Temporary -> RPI -> Try to limit videos to 400x300 for performance benchmark
++	if (!Renderer::isSmallScreen())
++		maxSize = Vector2f(400, 300);
++#endif
++
++	if (!mTargetSize.empty() && (mTargetSize.x() < maxSize.x() || mTargetSize.y() < maxSize.y()))
++		maxSize = mTargetSize;
++
++	// If video is bigger than display, ask the decoder for a smaller image
++	auto sz = ImageIO::adjustPictureSize(Vector2i(mVideoWidth, mVideoHeight), Vector2i(mTargetSize.x(), mTargetSize.y()), mTargetIsMin);
++	if (sz.x() < mVideoWidth || sz.y() < mVideoHeight)
++	{
++		mVideoWidth = sz.x();
++		mVideoHeight = sz.y();
++	}
++}
++
++bool VideoVlcComponent::startMppVideo(const std::string& path)
++{
++#ifdef HAVE_MPP
++	if (Settings::getInstance()->getString("VideoDecoder") == "vlc")
++		return false;
++
++	mMpp = MppVideoPlayer::open(path);
++	if (mMpp == nullptr)
++		return false;
++
++	LOG(LogInfo) << "VideoVlcComponent: hardware decoding " << path << " (" << mMpp->width() << "x" << mMpp->height() << ")";
++
++	mPlayingVideoPath = mVideoPath;
++	mVideoWidth = mMpp->width();
++	mVideoHeight = mMpp->height();
++	limitVideoSize();
++
++	PowerSaver::pause();
++	setupContext();
++
++	bool audio = mMpp->hasAudio() && Settings::getInstance()->getBool("VideoAudio");
++	if (audio)
++		AudioManager::setVideoPlaying(true);
++
++	// If we have a playlist : most videos have a fader, skip it (same as the VLC path)
++	double startTime = (mPlaylist != nullptr && mConfig.startDelay == 0 && !mConfig.showSnapshotDelay && !mConfig.showSnapshotNoVideo) ? 0.7 : 0.0;
++	mMpp->start(&mContext, (int)mVideoWidth, (int)mVideoHeight, audio, startTime);
++	return true;
++#else
++	return false;
++#endif
++}
++
+ void VideoVlcComponent::startVideo()
+ {
+ 	if (mIsPlaying)
+@@ -516,6 +591,9 @@ void VideoVlcComponent::startVideo()
+ #else
+ 	std::string path(mVideoPath);
+ #endif
++	if (path.size() > 0 && startMppVideo(path))
++		return;
++
+ 	// Make sure we have a video path
+ 	if (mVLC && (path.size() > 0))
+ 	{
+@@ -559,29 +637,7 @@ void VideoVlcComponent::startVideo()
+ 			// Make sure we found a valid video track
+ 			if ((mVideoWidth > 0) && (mVideoHeight > 0))
+ 			{
+-				if (Settings::getInstance()->getBool("OptimizeVideo"))
+-				{
+-					// Avoid videos bigger than resolution
+-					Vector2f maxSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
+-										
+-#ifdef _RPI_
+-					// Temporary -> RPI -> Try to limit videos to 400x300 for performance benchmark
+-					if (!Renderer::isSmallScreen())
+-						maxSize = Vector2f(400, 300);
+-#endif
+-
+-					if (!mTargetSize.empty() && (mTargetSize.x() < maxSize.x() || mTargetSize.y() < maxSize.y()))
+-						maxSize = mTargetSize;
+-
+-
+-					// If video is bigger than display, ask VLC for a smaller image
+-					auto sz = ImageIO::adjustPictureSize(Vector2i(mVideoWidth, mVideoHeight), Vector2i(mTargetSize.x(), mTargetSize.y()), mTargetIsMin);
+-					if (sz.x() < mVideoWidth || sz.y() < mVideoHeight)
+-					{
+-						mVideoWidth = sz.x();
+-						mVideoHeight = sz.y();
+-					}
+-				}
++				limitVideoSize();
+ 
+ 				PowerSaver::pause();
+ 				setupContext();
+@@ -615,6 +671,12 @@ void VideoVlcComponent::stopVideo()
+ 	mIsWaitingForVideoToStart = false;
+ 	mStartDelayed = false;
+ 
++#ifdef HAVE_MPP
++	// joins the decoder thread before freeContext() frees the surfaces it writes to
++	delete mMpp;
++	mMpp = nullptr;
++#endif
++
+ 	// Release the media player so it stops calling back to us
+ 	if (mMediaPlayer)
+ 	{
+diff --git a/es-core/src/components/VideoVlcComponent.h b/es-core/src/components/VideoVlcComponent.h
+index 6f3d7cf..1e20a18 100644
+--- a/es-core/src/components/VideoVlcComponent.h
++++ b/es-core/src/components/VideoVlcComponent.h
+@@ -9,6 +9,7 @@
+ struct libvlc_instance_t;
+ struct libvlc_media_t;
+ struct libvlc_media_player_t;
++class MppVideoPlayer;
+ 
+ struct VideoContext
+ {
+@@ -95,6 +96,10 @@ private:
+ 
+ 	void setupContext();
+ 	void freeContext();
++	// Shrinks mVideoWidth/mVideoHeight to the target size when OptimizeVideo is on
++	void limitVideoSize();
++	// Plays the video on the VPU when possible; false means use VLC
++	bool startMppVideo(const std::string& path);
+ 
+ 	void setEffect(VideoVlcFlags::VideoVlcEffect effect) { mEffect = effect; }
+ 
+@@ -102,6 +107,7 @@ private:
+ 	static libvlc_instance_t*		mVLC;
+ 	libvlc_media_t*					mMedia;
+ 	libvlc_media_player_t*			mMediaPlayer;
++	MppVideoPlayer*					mMpp;
+ 	VideoContext					mContext;
+ 	std::shared_ptr<TextureResource> mTexture;
+ 
+-- 
+2.53.0
+

@@ -1,31 +1,16 @@
-> **V40 Max (720×720) mainline port.** The fork’s Linux 7.3.4 image and installation guide live on the [`v40-mainline-7.3.4` branch](https://github.com/dev-zetta/arkos4clone/blob/v40-mainline-7.3.4/ports/v40-mainline/IMAGE.md). See the [fork’s releases](https://github.com/dev-zetta/arkos4clone/releases) for available downloads.
+# ArkOS4Clone for V40 Max
 
-# (d)ArkOS 4.4 Kernel Porting for Unsupported Devices
+ArkOS4Clone for the RK3326 V40 Max with a 720×720 display runs **Linux 7.3.4-v40.1**. It includes the V40 panel and controller support, I²S audio clock correction, speaker routing, battery indicators, RTL8851BU USB Wi-Fi support, and PPSSPP rendering and hotkey fixes.
 
-Bringing **(d)ArkOS 4.4 kernel** porting to unsupported devices. Contributions via PRs are always welcome.
+## Install
 
-> 💡 Use the [DTB Analysis Tool](https://lcdyk0517.github.io/dtbTools.html) to identify your clone type or request support for unsupported devices.
+- For a fresh SD card, follow the [full image installation and verification guide](ports/v40-mainline/IMAGE.md). Use a spare card of at least 16 GB.
+- For a compatible existing V40 installation, follow the [kernel update instructions](ports/v40-mainline/KERNEL_RELEASE.md). [Download the kernel update](https://github.com/dev-zetta/arkos4clone/releases/tag/v40-kernel-7.3.4-v40.1).
 
-> 🔧 Use the [DTB Customization Tool](https://lcdyk0517.github.io/tools/dtb-tools.html) to customize your device settings, including joystick axis remapping, button mapping, battery capacity, and screen refresh rate.
+See the [V40 port overview](ports/v40-mainline/README.md), [build instructions](ports/v40-mainline/BUILD.md), and [hardware validation results](ports/v40-mainline/docs/VALIDATION.md). GitHub Actions builds the [full image](https://github.com/dev-zetta/arkos4clone/actions/workflows/v40-image.yml) and the [kernel](https://github.com/dev-zetta/arkos4clone/actions/workflows/v40-mainline.yml).
 
-> ⚠️ Please make sure to read the [Wiki](https://github.com/lcdyk0517/arkos4clone/wiki) thoroughly before use.
+## Maintainer
 
-> 📝 **[View Changelog](Changelog.md)**
+[Gabriel Max](https://github.com/dev-zetta) · [dev@zetta.app](mailto:dev@zetta.app)
 
----
-
-## Collaborators
-
-- [@jokubasver](https://github.com/jokubasver) — mainly maintains support for **kernel 5.10.252**.
-
----
-
-## Support the Project
-
-![devices](https://r36s.dpdns.org/devices.jpg)
-
-If you find (d)ArkOS4Clone helpful and want to support future development:
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/lcdyk)
-
-Thank you for your support! 🙏
+See [source provenance and upstream credits](ports/v40-mainline/UPSTREAM.md).

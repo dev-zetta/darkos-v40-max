@@ -1,0 +1,74 @@
+#!/usr/bin/python3
+"""Persist three bounded snapshots for mainline hardware testing."""
+import os
+import subprocess
+from pathlib import Path
+
+boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+directory = Path('/boot/mainline/logs') / boot
+directory.mkdir(parents=True, exist_ok=True)
+index = len(list(directory.glob('snapshot-*.log'))) + 1
+if index > 3:
+    raise SystemExit(0)
+commands = [
+    ['uname', '-a'], ['cat', '/proc/cmdline'], ['dmesg'],
+    ['systemctl', '--no-pager', '--failed'], ['ip', '-br', 'address'],
+    ['aplay', '-l'], ['amixer', '-c', '0', 'controls'], ['amixer', '-c', '0'],
+    ['ls', '-l', '/dev/dri'],
+    ['cat', '/proc/bus/input/devices'],
+    ['ls', '-l', '/dev/input/by-path'],
+    ['cat', '/sys/class/tty/tty0/active'],
+    ['journalctl', '-b', '--no-pager', '-n', '800', '-u', 'emulationstation',
+     '-u', 'ogage', '-u', 'audiopath', '-u', 'alsa-restore', '-u', 'batteryplus'],
+]
+with (directory / ('snapshot-' + str(index) + '.log')).open('w') as out:
+    out.write('BACKLIGHT AND DISPLAY STATE\n')
+    for path in [*sorted(Path('/sys/class/backlight').glob('*/*')),
+                 Path('/sys/kernel/debug/pwm'),
+                 Path('/sys/kernel/debug/regulator/regulator_summary'),
+                 Path('/sys/kernel/debug/devices_deferred'),
+                 Path('/sys/kernel/debug/dri/0/state')]:
+        if path.name not in ['brightness', 'max_brightness', 'actual_brightness', 'bl_power', 'type', 'pwm', 'regulator_summary', 'devices_deferred', 'state']:
+            continue
+        try:
+            out.write(str(path) + ': ' + path.read_text().strip() + '\n')
+        except OSError as error:
+            out.write(str(path) + ': ' + str(error) + '\n')
+    out.write('POWER SUPPLIES\n')
+    for supply in sorted(Path('/sys/class/power_supply').glob('*')):
+        for attribute in ['type', 'present', 'status', 'capacity', 'voltage_now', 'voltage_avg', 'current_avg']:
+            path = supply / attribute
+            try:
+                out.write(str(path) + ': ' + path.read_text().strip() + '\n')
+            except OSError as error:
+                out.write(str(path) + ': ' + str(error) + '\n')
+    out.write('FRONTEND RESOURCE CHECK\n')
+    out.flush()
+    subprocess.run(['/usr/local/libexec/v40-mainline-resources',
+                    '/usr/local/lib/v40-mainline/resources'],
+                   stdout=out, stderr=subprocess.STDOUT, timeout=3)
+    for path in [Path('/run/ark-emulationstation/media-state'), Path('/tmp/battery.percent')]:
+        try:
+            out.write(str(path) + ': ' + path.read_text().strip() + '\n')
+        except OSError as error:
+            out.write(str(path) + ': ' + str(error) + '\n')
+    for command in commands:
+        out.write('COMMAND ' + repr(command) + '\n')
+        out.flush()
+        try:
+            subprocess.run(command, stdout=out, stderr=subprocess.STDOUT, timeout=8)
+        except subprocess.TimeoutExpired:
+            out.write('Command timed out\n')
+    if index == 2:
+        out.write('DISPLAY FRAMEBUFFER CAPTURE\n')
+        out.flush()
+        try:
+            subprocess.run(['/usr/local/libexec/v40-drm-capture', '/dev/dri/card0',
+                            str(directory / 'scanout.ppm')],
+                           stdout=out, stderr=subprocess.STDOUT, timeout=8)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            out.write('Framebuffer capture unavailable: ' + str(error) + '\n')
+    out.flush()
+    os.fsync(out.fileno())
+if index == 3:
+    subprocess.run(['systemctl', '--no-block', 'stop', 'v40-mainline-collect.timer'])

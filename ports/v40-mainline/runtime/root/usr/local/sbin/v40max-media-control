@@ -1,0 +1,72 @@
+#!/usr/bin/python3
+"""Quiesce before systemd-sleep; a failed precondition actually vetoes suspend."""
+import os
+import hashlib
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+STATE=Path('/run/ark-emulationstation/media-state')
+EXECUTABLE=Path('/usr/bin/emulationstation/emulationstation')
+MAINLINE=os.uname().release=='7.3.4-v40.1'
+NATIVE=Path('/usr/local/lib/v40-mainline/emulationstation')
+NATIVE_DIGEST='@FRONTEND_SHA256@'
+VERIFIED=set()
+LIBRARY='/usr/local/lib/v40-frontend-bridge/libv40-frontend-bridge.so'
+
+def snapshot():
+    try:
+        fields=STATE.read_text().split()
+        pid=int(fields[0]);state=fields[1]
+        executable=Path('/proc',str(pid),'exe').resolve()
+        if MAINLINE:
+            if executable!=NATIVE:return None
+            info=executable.stat()
+            identity=(pid,info.st_dev,info.st_ino,info.st_mtime_ns,info.st_size)
+            if identity not in VERIFIED:
+                if hashlib.sha256(executable.read_bytes()).hexdigest()!=NATIVE_DIGEST:return None
+                VERIFIED.add(identity)
+        else:
+            if executable!=EXECUTABLE:return None
+            maps=Path('/proc',str(pid),'maps').read_text()
+            if LIBRARY not in maps:return None
+        return pid,state
+    except (OSError,ValueError,IndexError):return None
+
+def running():
+    # The service may intentionally be stopped during maintenance.
+    return subprocess.run(['systemctl','is-active','--quiet','emulationstation.service']).returncode==0
+
+def control(suspend):
+    current=snapshot()
+    if not current:
+        if suspend and running():
+            print('v40-media: active frontend has no verified bridge acknowledgement; suspend cancelled',file=sys.stderr,flush=True)
+            return 1
+        return 0
+    pid,_=current
+    action=(signal.SIGUSR1 if suspend else signal.SIGUSR2) if MAINLINE else signal.SIGRTMIN+(4 if suspend else 5)
+    try:os.kill(pid,action)
+    except ProcessLookupError:return 0
+    desired={'suspended','external'} if suspend else {'active','external'}
+    deadline=time.monotonic()+10
+    retry_at=time.monotonic()+1
+    while time.monotonic()<deadline:
+        current=snapshot()
+        if not current or current[0]!=pid:
+            return 1 if suspend and running() else 0
+        if current[1] in desired:
+            print('v40-media:',current[1],flush=True)
+            return 0
+        if current[1]=='quitting':return 1 if suspend else 0
+        if not suspend and current[1]=='error' and time.monotonic()>=retry_at:
+            print('v40-media: retrying original frontend media resume',file=sys.stderr,flush=True)
+            os.kill(pid,action);retry_at=time.monotonic()+1
+        time.sleep(.02)
+    print('v40-media: '+('suspend cancelled' if suspend else 'resume not acknowledged')+'; frontend state '+current[1],file=sys.stderr,flush=True)
+    return 1 if suspend else 0
+if __name__=='__main__':
+    if len(sys.argv)!=2 or sys.argv[1] not in {'pre','post'}:raise SystemExit('Use pre or post')
+    raise SystemExit(control(sys.argv[1]=='pre'))

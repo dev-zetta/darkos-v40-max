@@ -1,0 +1,3 @@
+#!/bin/sh
+# Synchronization is ordered inside v40max-sleep after mixer state is saved.
+exit 0

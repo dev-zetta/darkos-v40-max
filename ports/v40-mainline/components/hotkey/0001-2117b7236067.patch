@@ -1,0 +1,200 @@
+From 2117b72360670d2097b9e4d94db0d0f997902f39 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local.invalid>
+Date: Tue, 10 Nov 2026 20:10:39 +0100
+Subject: [PATCH] Ignore queued wake power key and repeated power presses
+
+---
+ .cargo/config.toml |  6 ++++++
+ Cargo.lock         |  1 +
+ Cargo.toml         |  1 +
+ src/main.rs        | 42 ++++++++++++++++++++++++++++------------
+ src/power_gate.rs  | 48 ++++++++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 86 insertions(+), 12 deletions(-)
+ create mode 100644 .cargo/config.toml
+ create mode 100644 src/power_gate.rs
+
+diff --git a/.cargo/config.toml b/.cargo/config.toml
+new file mode 100644
+index 0000000..29134c5
+--- /dev/null
++++ b/.cargo/config.toml
+@@ -0,0 +1,6 @@
++# evdev-sys 0.2.2 incorrectly skips pkg-config whenever HOST != TARGET.
++# Use Debian's ARM64 library, matching the handheld's dynamic dependency.
++[target.aarch64-unknown-linux-gnu.evdev]
++rustc-link-lib = ["evdev"]
++rustc-link-search = ["/usr/lib/aarch64-linux-gnu"]
++include = "/usr/include/libevdev-1.0"
+diff --git a/Cargo.lock b/Cargo.lock
+index 84889ba..5e67bdf 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -94,6 +94,7 @@ name = "ogage"
+ version = "0.1.0"
+ dependencies = [
+  "evdev-rs",
++ "libc",
+  "mio",
+ ]
+ 
+diff --git a/Cargo.toml b/Cargo.toml
+index 0ed9344..a320dfc 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -11,6 +11,7 @@ panic = 'abort'
+ # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+ 
+ [dependencies]
++libc = "=0.2.94"
+ evdev-rs = "0.5.0"
+ mio = { version = "0.7", features = ["os-poll", "os-util"]}
+ 
+diff --git a/src/main.rs b/src/main.rs
+index 1674943..1331d04 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,4 @@
++mod power_gate;
+ extern crate evdev_rs as evdev;
+ extern crate mio;
+ 
+@@ -166,7 +167,20 @@ fn process_event(
+     k: &Keys,
+     repeat_action: &Arc<AtomicU8>,
+     repeat_active: &Arc<AtomicBool>,
++    power: &mut power_gate::PowerGate,
+ ) {
++    if ev.event_code == EventCode::EV_KEY(EV_KEY::KEY_POWER) {
++        if power.key(ev.value, clock_ms(libc::CLOCK_MONOTONIC).unwrap_or(0)) {
++            repeat_action.store(RepeatAction::None as u8, Ordering::Relaxed);
++            repeat_active.store(false, Ordering::Relaxed);
++            let script = if hotkey { "finish.sh" } else { "pause.sh" };
++            if let Err(error) = Command::new(script).spawn() {
++                eprintln!("Cannot execute {}: {}", script, error);
++            }
++        }
++        return;
++    }
++
+     if hotkey && ev.value == 1 {
+         if ev.event_code == k.bright_up || ev.event_code == k.bright_up2 {
+             Command::new("brightnessctl").args(&["s","+2%"]).output().expect("Failed to execute brightnessctl");
+@@ -188,21 +202,12 @@ fn process_event(
+             repeat_action.store(RepeatAction::VolDown as u8, Ordering::Relaxed);
+             repeat_active.store(true, Ordering::Relaxed);
+         }
+-        else if ev.event_code == EventCode::EV_KEY(EV_KEY::KEY_POWER) && ev.value > 0 {
+-            Command::new("finish.sh").spawn().ok().expect("Failed to execute shutdown process");
+-            repeat_action.store(RepeatAction::None as u8, Ordering::Relaxed);
+-            repeat_active.store(false, Ordering::Relaxed);
+-        }
++
+     }
+     else if ev.event_code == EventCode::EV_SW(EV_SW::SW_HEADPHONE_INSERT) {
+         let dest = match ev.value { 1 => "SPK", _ => "HP" };
+         Command::new("amixer").args(&["-q", "sset", "'Playback Path'", dest]).output().expect("Failed to execute amixer");
+     }
+-    else if ev.event_code == EventCode::EV_KEY(EV_KEY::KEY_POWER) && ev.value == 1 {
+-        repeat_action.store(RepeatAction::None as u8, Ordering::Relaxed);
+-        repeat_active.store(false, Ordering::Relaxed);
+-        Command::new("pause.sh").spawn().ok().expect("Failed to execute suspend process");
+-    }
+     else if ev.event_code == k.volume_up  && ev.value > 0 {
+         Command::new("amixer").args(&["-q", "sset", "Playback", "1%+"]).output().expect("Failed to execute amixer");
+     }
+@@ -238,7 +243,15 @@ fn process_event2(_dev: &Device, ev: &InputEvent, selectkey: bool) {
+     }
+ }
+ 
++fn clock_ms(id: libc::clockid_t) -> io::Result<u64> {
++    let mut time = libc::timespec { tv_sec: 0, tv_nsec: 0 };
++    if unsafe { libc::clock_gettime(id, &mut time) } != 0 { return Err(io::Error::last_os_error()); }
++    Ok(time.tv_sec as u64 * 1000 + time.tv_nsec as u64 / 1_000_000)
++}
++
+ fn main() -> io::Result<()> {
++    let mut power = power_gate::PowerGate::default();
++    power.clock(clock_ms(libc::CLOCK_MONOTONIC)?, clock_ms(libc::CLOCK_BOOTTIME)?);
+     // 读取配置（若文件不存在或格式不对，会用默认键位）
+     let keys = load_keys_from_conf("/home/ark/ogage.conf");
+ 
+@@ -296,7 +309,12 @@ fn main() -> io::Result<()> {
+     }
+ 
+     loop {
+-        poll.poll(&mut events, None)?;
++        poll.poll(&mut events, Some(Duration::from_millis(250)))?;
++        if power.clock(clock_ms(libc::CLOCK_MONOTONIC)?, clock_ms(libc::CLOCK_BOOTTIME)?) {
++            repeat_action.store(RepeatAction::None as u8, Ordering::Relaxed);
++            repeat_active.store(false, Ordering::Relaxed);
++            eprintln!("ogage: resumed; ignoring the queued wake key for 1 second");
++        }
+         for event in events.iter() {
+             let devid = event.token().0;
+             let dev = &mut devs[devid];
+@@ -316,7 +334,7 @@ fn main() -> io::Result<()> {
+                                 repeat_active.store(false, Ordering::Relaxed);
+                             }
+                         }
+-                        process_event(&dev, &ev, hotkey, &keys, &repeat_action, &repeat_active);
++                        process_event(&dev, &ev, hotkey, &keys, &repeat_action, &repeat_active, &mut power);
+ 
+                         // selectkey 保持原逻辑（你若想也改成可配置，可仿照 hotkey）
+                         if ev.event_code == EventCode::EV_KEY(EV_KEY::BTN_TRIGGER_HAPPY1) {
+diff --git a/src/power_gate.rs b/src/power_gate.rs
+new file mode 100644
+index 0000000..ef2f0f2
+--- /dev/null
++++ b/src/power_gate.rs
+@@ -0,0 +1,48 @@
++// A wake key is queued while userspace is frozen. Detect actual suspend time
++// from BOOTTIME - MONOTONIC, independent of RTC and wall-clock adjustments.
++#[derive(Default)]
++pub struct PowerGate {
++    sleep_offset: Option<u64>,
++    quiet_until: u64,
++    down: bool,
++}
++impl PowerGate {
++    pub fn clock(&mut self, monotonic_ms: u64, boottime_ms: u64) -> bool {
++        let offset = boottime_ms.saturating_sub(monotonic_ms);
++        let resumed = self.sleep_offset.map_or(false, |old| offset > old.saturating_add(100));
++        self.sleep_offset = Some(offset);
++        if resumed {
++            self.quiet_until = monotonic_ms.saturating_add(1000);
++            self.down = false;
++        }
++        resumed
++    }
++    pub fn key(&mut self, value: i32, monotonic_ms: u64) -> bool {
++        if value == 0 { self.down = false; return false; }
++        if value != 1 || self.down { return false; }
++        self.down = true;
++        monotonic_ms >= self.quiet_until
++    }
++}
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test] fn normal_press_release_and_repeat() {
++        let mut g=PowerGate::default(); g.clock(1000,1000);
++        assert!(g.key(1,1000)); assert!(!g.key(1,1001)); assert!(!g.key(2,1002));
++        assert!(!g.key(0,1003)); assert!(g.key(1,1100));
++    }
++    #[test] fn wake_press_does_not_resuspend() {
++        let mut g=PowerGate::default(); g.clock(1000,1000); assert!(g.key(1,1000)); g.key(0,1010);
++        assert!(g.clock(1100,11100)); assert!(!g.key(1,1100)); g.key(0,1110);
++        assert!(!g.key(1,1500)); g.key(0,1510); assert!(g.key(1,2200));
++    }
++    #[test] fn idle_poll_expires_wake_guard_before_later_press() {
++        let mut g=PowerGate::default(); g.clock(1000,1000); g.clock(1100,21100);
++        g.clock(1350,21350); g.clock(2350,22350); assert!(g.key(1,60000));
++    }
++    #[test] fn clock_sampling_jitter_is_not_resume() {
++        let mut g=PowerGate::default(); g.clock(1000,1001);
++        assert!(!g.clock(1100,1100)); assert!(!g.clock(1200,1202)); assert!(g.key(1,1200));
++    }
++}
+-- 
+2.53.0
+

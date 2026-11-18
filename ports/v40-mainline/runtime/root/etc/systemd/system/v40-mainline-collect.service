@@ -1,0 +1,7 @@
+[Unit]
+Description=Bounded V40 mainline trial boot diagnostics
+ConditionKernelCommandLine=v40.mainline=1
+After=local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/share/v40-mainline/collect-boot

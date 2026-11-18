@@ -1,0 +1,47 @@
+[
+  {
+    "component": "frontend",
+    "repository": "https://github.com/lcdyk0517/EmulationStation-fcamod.git",
+    "base_commit": "0c2aaef470923cd67e7faf84e4137b23257e8892",
+    "accepted_source_commit": "6f78f3cf9a9df5956a1eac43ea0d6b2703a74f3b",
+    "accepted_tree": "bf29943cc98bfeaa00f1865d9530f1fd298764dd",
+    "submodules": {
+      "external/pugixml": "96aebcb8ae2062ad020186e32fd301db7c3a0c88"
+    },
+    "patches": [
+      "0001-645c4e05685e.patch",
+      "0002-ffeba6cd3d68.patch",
+      "0003-7ac4fac41194.patch",
+      "0004-8e9ffab68463.patch",
+      "0005-047312b05678.patch",
+      "0006-8e5977fd6c30.patch",
+      "0007-762a1c719f56.patch",
+      "0008-f0939909342d.patch",
+      "0009-0c04597043d6.patch",
+      "0010-ef2fd7abc1dd.patch",
+      "0011-d092c30fbd65.patch",
+      "0012-6f78f3cf9a9d.patch"
+    ]
+  },
+  {
+    "component": "sdl",
+    "repository": "https://github.com/libsdl-org/SDL.git",
+    "base_commit": "5d249570393f7a37e037abf22cd6012a4cc56a71",
+    "accepted_source_commit": "15adddafbdd8741c0b183086da93456c275f5aa6",
+    "accepted_tree": "0f69da5f69eb78fba80e796f1344d77abced8369",
+    "patches": [
+      "0001-15adddafbdd8.patch"
+    ]
+  },
+  {
+    "component": "hotkey",
+    "repository": "https://github.com/lcdyk0517/ogage.git",
+    "base_commit": "f80f3701d271478782be7bc493f17ea07ffd170d",
+    "accepted_source_commit": "915cd2c47333a46cfee957544d86d7a3654b6616",
+    "accepted_tree": "a727936e5439987ff3705978756d8afed2f66de3",
+    "patches": [
+      "0001-2117b7236067.patch",
+      "0002-915cd2c47333.patch"
+    ]
+  }
+]

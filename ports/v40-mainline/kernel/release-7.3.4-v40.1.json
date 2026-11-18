@@ -1,0 +1,15 @@
+{
+  "kernel_release": "7.3.4-v40.1",
+  "board": "V40 Max RK3326, 720x720",
+  "source_commit_with_clock_fix": "8d8716bd01992a332dbe180ec6f3cc5c8371b495",
+  "kernel_build_id": "9b9fa24e4d8ee542980a34654afa47e9bde5bbd9",
+  "image_sha256": "5637d0bc66d6fadc50bd601c93c979b8e3d5bd700dc3fb3e4f86c72f53f4a5a7",
+  "dtb_sha256": "7b7f792f6cc5bfd57affb0589bd7f528c08f5d0087dca97f565cdf47ba2da5b3",
+  "config_sha256": "beb6c89e00283fa170a601bf350fb4d84459fdc19e60e7dfbf617ae2ff665cfd",
+  "module_symvers_sha256": "57dc4c79e3f577d636d745ea511b037e309d8bab01267ad9522a2812f9fa9bbf",
+  "prior_verified_image_sha256": "9f62be8d129d363e0ca123bb3ea8ab6358e5abb3484a827a88f58b43b53d387f",
+  "retained_modules_verified": 871,
+  "module_import_crcs_verified": 34885,
+  "source_preparation_options": ["--continuous-dma", "--dacmt-guard"],
+  "tested_boot_parameters": ["pl330.v40_continuous=0", "snd_soc_rk817.v40_dacmt_guard=1"]
+}

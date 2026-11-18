@@ -1,0 +1,788 @@
+--- a/drivers/dma/pl330.c
++++ b/drivers/dma/pl330.c
+@@ -26,6 +26,7 @@
+ #include <linux/pm_runtime.h>
+ #include <linux/bug.h>
+ #include <linux/reset.h>
++#include <linux/iopoll.h>
+ 
+ #include "dmaengine.h"
+ #define PL330_MAX_CHAN		8
+@@ -35,6 +36,12 @@
+ 
+ #define PL330_QUIRK_BROKEN_NO_FLUSHP	BIT(0)
+ #define PL330_QUIRK_PERIPH_BURST	BIT(1)
++
++/* Built-in diagnostic: opt in only at boot, never through writable sysfs. */
++static bool v40_continuous;
++module_param(v40_continuous, bool, 0444);
++MODULE_PARM_DESC(v40_continuous,
++	"V40-only continuous I2S1 playback diagnostic (default off)");
+ 
+ enum pl330_cachectrl {
+ 	CCTRL0,		/* Noncacheable and nonbufferable */
+@@ -457,6 +464,8 @@
+ 
+ 	/* for cyclic capability */
+ 	bool cyclic;
++	/* Retained after terminate so synchronize still waits for callbacks. */
++	bool continuous_sync;
+ 
+ 	/* for runtime pm tracking */
+ 	bool active;
+@@ -501,6 +510,7 @@
+ 	unsigned int num_peripherals;
+ 	struct dma_pl330_chan *peripherals; /* keep at end */
+ 	int quirks;
++	bool v40_continuous_allowed;
+ 
+ 	struct dentry		*dbgfs;
+ 	struct reset_control	*rstc;
+@@ -546,6 +556,14 @@
+ 	unsigned peri:5;
+ 	/* Hook to attach to DMAC's list of reqs with due callback */
+ 	struct list_head rqd;
++
++	/* Private diagnostic; independent of channel-level cyclic recycling. */
++	bool continuous;
++	u32 ring_bytes;
++	/* Protected by dmac->lock while submitted; reset on pool reuse. */
++	u32 period_pending;
++	u32 continuous_pos;
++	bool continuous_fault;
+ };
+ 
+ struct _xfer_spec {
+@@ -998,6 +1016,62 @@
+ 	writel(inten & ~(1 << thrd->ev), regs + INTEN);
+ }
+ 
++/* Candidate-only bounded stop; caller holds the DMAC lock and a PM ref. */
++static int pl330_continuous_stop(struct pl330_thread *thrd)
++{
++	void __iomem *regs = thrd->dmac->base;
++	u8 insn[6] = { 0 };
++	u32 state;
++	int ret;
++
++	writel(readl(regs + INTEN) & ~BIT(thrd->ev), regs + INTEN);
++	writel(BIT(thrd->ev), regs + INTCLR);
++	ret = readl_poll_timeout_atomic(regs + CS(thrd->id), state,
++		(state & 0xf) != DS_ST_FLTCMP, 1, 5000);
++	if (ret)
++		return ret;
++	state &= 0xf;
++	if (state != DS_ST_STOP && state != DS_ST_KILL && state != DS_ST_CMPLT) {
++		_emit_KILL(0, insn);
++		_execute_DBGINSN(thrd, insn, false);
++	}
++	ret = readl_poll_timeout_atomic(regs + CS(thrd->id), state,
++		(state & 0xf) == DS_ST_STOP, 1, 5000);
++	writel(BIT(thrd->ev), regs + INTCLR);
++	return ret;
++}
++
++static bool pl330_thread_continuous(struct pl330_thread *thrd)
++{
++	return (thrd->req[0].desc && thrd->req[0].desc->continuous) ||
++		(thrd->req[1].desc && thrd->req[1].desc->continuous);
++}
++
++/* A zero/stale SAR must not underflow the ring or manufacture a new wrap. */
++static u32 pl330_continuous_position(struct dma_pl330_desc *desc, u32 address)
++{
++	u64 start = desc->px.src_addr;
++
++	if (desc->ring_bytes && address >= start &&
++	    (u64)address <= start + desc->ring_bytes)
++		desc->continuous_pos = (address - start) % desc->ring_bytes;
++	return desc->continuous_pos;
++}
++
++/* Called only for serviced period events with dmac->lock held. */
++static void pl330_continuous_event(struct dma_pl330_desc *desc)
++{
++	if (desc->continuous_fault || desc->status != BUSY)
++		return;
++	if (desc->period_pending == U32_MAX) {
++		desc->continuous_fault = true;
++		desc->period_pending = 0;
++	} else {
++		desc->period_pending++;
++	}
++	tasklet_schedule(&desc->pchan->task);
++}
++
+ /* Start doing req 'idx' of thread 'thrd' */
+ static bool _trigger(struct pl330_thread *thrd)
+ {
+@@ -1409,6 +1483,63 @@
+ }
+ 
+ /*
++ * Continuous LC0-period / LC1-burst ring derived from the April 2022
++ * Rockchip proposal by Huibin Hong and Sugar Zhang, and the retained BSP.
++ * Earlier cyclic-ring work: Alexander Kochetkov (2017).
++ * https://lkml.iu.edu/2204.3/04807.html
++ *
++ * Keep current mainline _bursts(), including FLUSHP/quirk semantics. Unlike
++ * the general proposal, this diagnostic is selected only for the observed
++ * two- or four-period V40 playback geometry. No dregs or period-body unrolling.
++ */
++static int _setup_continuous(struct pl330_dmac *pl330, unsigned dry_run,
++			     u8 buf[], const struct _xfer_spec *pxs, int ev)
++{
++	struct dma_pl330_desc *desc = pxs->desc;
++	struct pl330_xfer *x = &desc->px;
++	struct _arg_LPEND end = { .cond = ALWAYS };
++	u32 burst_bytes = BRST_SIZE(pxs->ccr) * BRST_LEN(pxs->ccr);
++	u32 periods, bursts, body, jump0, jump1, forever;
++	int off = 0;
++
++	if (!x->bytes || !desc->ring_bytes || !burst_bytes ||
++	    desc->ring_bytes % x->bytes || x->bytes % burst_bytes ||
++	    desc->rqtype != DMA_MEM_TO_DEV || !desc->rqcfg.src_inc ||
++	    desc->rqcfg.dst_inc)
++		return -EINVAL;
++	periods = desc->ring_bytes / x->bytes;
++	bursts = x->bytes / burst_bytes;
++	if (!periods || periods > 256 || !bursts || bursts > 256)
++		return -EINVAL;
++
++	/* Validate every u8 backward displacement before emitting any byte. */
++	body = _bursts(pl330, 1, buf, pxs, 1);
++	jump1 = body;
++	jump0 = SZ_DMALP + body + SZ_DMALPEND + SZ_DMASEV;
++	forever = 2 * SZ_DMAMOV + SZ_DMALP + jump0 + SZ_DMALPEND;
++	if (jump1 > U8_MAX || jump0 > U8_MAX || forever > U8_MAX)
++		return -E2BIG;
++
++	off += _emit_MOV(dry_run, &buf[off], SAR, x->src_addr);
++	off += _emit_MOV(dry_run, &buf[off], DAR, x->dst_addr);
++	off += _emit_LP(dry_run, &buf[off], 0, periods);
++	off += _emit_LP(dry_run, &buf[off], 1, bursts);
++	off += _bursts(pl330, dry_run, &buf[off], pxs, 1);
++	end.loop = 1;
++	end.bjump = jump1;
++	off += _emit_LPEND(dry_run, &buf[off], &end);
++	off += _emit_SEV(dry_run, &buf[off], ev);
++	end.loop = 0;
++	end.bjump = jump0;
++	off += _emit_LPEND(dry_run, &buf[off], &end);
++	end.loop = 1;
++	end.forever = true;
++	end.bjump = forever;
++	off += _emit_LPEND(dry_run, &buf[off], &end);
++	return off;
++}
++
++/*
+  * A req is a sequence of one or more xfer units.
+  * Returns the number of bytes taken to setup the MC for the req.
+  */
+@@ -1424,6 +1555,12 @@
+ 
+ 	/* DMAMOV CCR, ccr */
+ 	off += _emit_MOV(dry_run, &buf[off], CCR, pxs->ccr);
++	if (pxs->desc->continuous) {
++		int ret = _setup_continuous(pl330, dry_run, &buf[off],
++					    pxs, thrd->ev);
++
++		return ret < 0 ? ret : off + ret;
++	}
+ 
+ 	off += _setup_xfer(pl330, dry_run, &buf[off], pxs);
+ 
+@@ -1514,7 +1651,18 @@
+ 
+ 	spin_lock_irqsave(&pl330->lock, flags);
+ 
++	if (desc->continuous && desc->continuous_fault) {
++		ret = -ECANCELED;
++		goto xfer_exit;
++	}
+ 	if (_queue_full(thrd)) {
++		ret = -EAGAIN;
++		goto xfer_exit;
++	}
++	/* A hardware ring never yields its request slot to another transfer. */
++	if ((thrd->req[0].desc && thrd->req[0].desc->continuous) ||
++	    (thrd->req[1].desc && thrd->req[1].desc->continuous) ||
++	    (desc->continuous && (thrd->req[0].desc || thrd->req[1].desc))) {
+ 		ret = -EAGAIN;
+ 		goto xfer_exit;
+ 	}
+@@ -1534,6 +1682,8 @@
+ 
+ 	/* First dry run to check if req is acceptable */
+ 	ret = _setup_req(pl330, 1, thrd, idx, &xs);
++	if (ret < 0)
++		goto xfer_exit;
+ 
+ 	if (ret > pl330->mcbufsz / 2) {
+ 		dev_info(pl330->ddma.dev, "%s:%d Try increasing mcbufsz (%i/%i)\n",
+@@ -1542,10 +1692,17 @@
+ 		goto xfer_exit;
+ 	}
+ 
++	/* Generation must succeed before publishing a request to the IRQ path. */
++	ret = _setup_req(pl330, 0, thrd, idx, &xs);
++	if (ret < 0)
++		goto xfer_exit;
+ 	/* Hook the request */
+ 	thrd->lstenq = idx;
+ 	thrd->req[idx].desc = desc;
+-	_setup_req(pl330, 0, thrd, idx, &xs);
++	if (desc->continuous)
++		dev_info(pl330->ddma.dev,
++			"V40 continuous I2S1 TX active: request18 period4096 ring%u width4 burst8\n",
++			desc->ring_bytes);
+ 
+ 	ret = 0;
+ 
+@@ -1609,6 +1766,31 @@
+ 			struct pl330_thread *thrd = &pl330->channels[i];
+ 			void __iomem *regs = pl330->base;
+ 			enum pl330_op_err err;
++
++			if (pl330_thread_continuous(thrd)) {
++				int slot, stop_ret;
++
++				/* Never drop the lock with a live continuous-desc pointer. */
++				stop_ret = pl330_continuous_stop(thrd);
++				if (stop_ret)
++					dev_err(pl330->ddma.dev,
++						"Continuous channel failed to stop after fault\n");
++				for (slot = 0; slot < 2; slot++) {
++					struct dma_pl330_desc *desc = thrd->req[slot].desc;
++
++					if (!desc)
++						continue;
++					desc->continuous_fault = true;
++					desc->period_pending = 0;
++					tasklet_schedule(&desc->pchan->task);
++					if (!stop_ret)
++						thrd->req[slot].desc = NULL;
++				}
++				if (!stop_ret)
++					thrd->req_running = -1;
++				pl330->dmac_tbd.reset_chan &= ~BIT(i);
++				continue;
++			}
+ 
+ 			_stop(thrd);
+ 
+@@ -1665,7 +1847,19 @@
+ 					"Reset Channel-%d\t CS-%x FTC-%x\n",
+ 						i, readl(regs + CS(i)),
+ 						readl(regs + FTC(i)));
+-				_stop(&pl330->channels[i]);
++				if (pl330_thread_continuous(&pl330->channels[i])) {
++					struct pl330_thread *thrd = &pl330->channels[i];
++					int slot;
++
++					for (slot = 0; slot < 2; slot++)
++						if (thrd->req[slot].desc) {
++							thrd->req[slot].desc->continuous_fault = true;
++							thrd->req[slot].desc->period_pending = 0;
++						}
++					/* The fault tasklet performs the bounded hardware stop. */
++				} else {
++					_stop(&pl330->channels[i]);
++				}
+ 			}
+ 			i++;
+ 		}
+@@ -1704,6 +1898,11 @@
+ 
+ 			/* Detach the req */
+ 			descdone = thrd->req[active].desc;
++			if (descdone && descdone->continuous) {
++				/* SEV reports a period; the hardware ring remains attached. */
++				pl330_continuous_event(descdone);
++				continue;
++			}
+ 			thrd->req[active].desc = NULL;
+ 
+ 			thrd->req_running = -1;
+@@ -2049,6 +2248,15 @@
+ 		/* If already submitted */
+ 		if (desc->status == BUSY || desc->status == PAUSED)
+ 			continue;
++		if (desc->continuous) {
++			bool fault;
++
++			spin_lock(&pch->dmac->lock);
++			fault = desc->continuous_fault;
++			spin_unlock(&pch->dmac->lock);
++			if (fault || desc->status == DONE)
++				continue;
++		}
+ 
+ 		ret = pl330_submit_req(pch->thread, desc);
+ 		if (!ret) {
+@@ -2066,6 +2274,55 @@
+ 	}
+ }
+ 
++/* pch->lock protects list ownership; dmac->lock protects fault/pending fields. */
++static bool pl330_continuous_faulted(struct dma_pl330_chan *pch)
++{
++	struct dma_pl330_desc *desc;
++
++	list_for_each_entry(desc, &pch->work_list, node)
++		if (desc->continuous && desc->continuous_fault)
++			return true;
++	return false;
++}
++
++/* Caller holds pch->lock. Never retain a descriptor across a client callback. */
++static void pl330_continuous_callbacks(struct dma_pl330_chan *pch,
++				       unsigned long *flags)
++{
++	unsigned int budget = 32;
++
++	while (budget) {
++		struct dma_pl330_desc *desc, *found = NULL;
++		struct dmaengine_desc_callback cb;
++		bool pending = false;
++
++		list_for_each_entry(desc, &pch->work_list, node)
++			if (desc->continuous && desc->status == BUSY) {
++				found = desc;
++				break;
++			}
++		if (!found)
++			break;
++		spin_lock(&pch->dmac->lock);
++		if (!found->continuous_fault && found->period_pending) {
++			found->period_pending--;
++			dmaengine_desc_get_callback(&found->txd, &cb);
++			pending = true;
++		}
++		spin_unlock(&pch->dmac->lock);
++		if (!pending)
++			break;
++		budget--;
++		spin_unlock_irqrestore(&pch->lock, *flags);
++		if (dmaengine_desc_callback_valid(&cb))
++			dmaengine_desc_callback_invoke(&cb, NULL);
++		spin_lock_irqsave(&pch->lock, *flags);
++		/* terminate/reprepare may have recycled found; rescan from the head. */
++	}
++	if (!budget)
++		tasklet_schedule(&pch->task);
++}
++
+ static void pl330_tasklet(struct tasklet_struct *t)
+ {
+ 	struct dma_pl330_chan *pch = from_tasklet(pch, t, task);
+@@ -2078,6 +2335,13 @@
+ 	/* Pick up ripe tomatoes */
+ 	list_for_each_entry_safe(desc, _dt, &pch->work_list, node)
+ 		if (desc->status == DONE) {
++			if (desc->continuous) {
++				spin_lock(&pch->dmac->lock);
++				desc->continuous_fault = true;
++				desc->period_pending = 0;
++				spin_unlock(&pch->dmac->lock);
++				continue;
++			}
+ 			if (!pch->cyclic)
+ 				dma_cookie_complete(&desc->txd);
+ 			list_move_tail(&desc->node, &pch->completed_list);
+@@ -2087,17 +2351,23 @@
+ 	fill_queue(pch);
+ 
+ 	if (list_empty(&pch->work_list)) {
+-		spin_lock(&pch->thread->dmac->lock);
+-		_stop(pch->thread);
+-		spin_unlock(&pch->thread->dmac->lock);
+-		power_down = true;
++		/* A queued tasklet may run after terminate dropped the PM ref. */
++		if (!pch->continuous_sync || pch->active) {
++			spin_lock(&pch->thread->dmac->lock);
++			_stop(pch->thread);
++			spin_unlock(&pch->thread->dmac->lock);
++		}
++		power_down = pch->continuous_sync ? pch->active : true;
+ 		pch->active = false;
+ 	} else {
+ 		/* Make sure the PL330 Channel thread is active */
+ 		spin_lock(&pch->thread->dmac->lock);
+-		pl330_start_thread(pch->thread);
++		if (!pch->continuous_sync || !pl330_continuous_faulted(pch))
++			pl330_start_thread(pch->thread);
+ 		spin_unlock(&pch->thread->dmac->lock);
+ 	}
++	if (pch->continuous_sync)
++		pl330_continuous_callbacks(pch, &flags);
+ 
+ 	while (!list_empty(&pch->completed_list)) {
+ 		struct dmaengine_desc_callback cb;
+@@ -2167,6 +2437,7 @@
+ 
+ 	dma_cookie_init(chan);
+ 	pch->cyclic = false;
++	pch->continuous_sync = false;
+ 
+ 	pch->thread = pl330_request_channel(pl330);
+ 	if (!pch->thread) {
+@@ -2275,6 +2546,37 @@
+ 	return 0;
+ }
+ 
++/* Caller holds pch->lock; submitted descriptors count even before issue. */
++static bool pl330_has_continuous(struct dma_pl330_chan *pch)
++{
++	struct dma_pl330_desc *desc;
++
++	list_for_each_entry(desc, &pch->submitted_list, node)
++		if (desc->continuous)
++			return true;
++	list_for_each_entry(desc, &pch->work_list, node)
++		if (desc->continuous)
++			return true;
++	return false;
++}
++
++/* Caller holds both channel and DMAC locks. */
++static void pl330_continuous_cancel(struct dma_pl330_chan *pch)
++{
++	struct dma_pl330_desc *desc;
++
++	list_for_each_entry(desc, &pch->submitted_list, node)
++		if (desc->continuous) {
++			desc->period_pending = 0;
++			desc->continuous_fault = true;
++		}
++	list_for_each_entry(desc, &pch->work_list, node)
++		if (desc->continuous) {
++			desc->period_pending = 0;
++			desc->continuous_fault = true;
++		}
++}
++
+ static int pl330_terminate_all(struct dma_chan *chan)
+ {
+ 	struct dma_pl330_chan *pch = to_pchan(chan);
+@@ -2282,12 +2584,31 @@
+ 	unsigned long flags;
+ 	struct pl330_dmac *pl330 = pch->dmac;
+ 	bool power_down = false;
++	bool continuous;
++	int ret;
+ 
+ 	pm_runtime_get_sync(pl330->ddma.dev);
+ 	spin_lock_irqsave(&pch->lock, flags);
++	continuous = pl330_has_continuous(pch);
+ 
+ 	spin_lock(&pl330->lock);
+-	_stop(pch->thread);
++	if (continuous) {
++		pl330_continuous_cancel(pch);
++		ret = pl330_continuous_stop(pch->thread);
++		if (ret) {
++			/* Keep the ring, requests and active PM ref owned on failure. */
++			spin_unlock(&pl330->lock);
++			spin_unlock_irqrestore(&pch->lock, flags);
++			pm_runtime_put_autosuspend(pl330->ddma.dev);
++			dev_err(pl330->ddma.dev,
++				"Continuous terminate failed; retaining DMA ownership\n");
++			return ret;
++		}
++		/* The queued fault tasklet must not revisit a detached, powered-off ring. */
++		pl330->dmac_tbd.reset_chan &= ~BIT(pch->thread->id);
++	} else {
++		_stop(pch->thread);
++	}
+ 	pch->thread->req[0].desc = NULL;
+ 	pch->thread->req[1].desc = NULL;
+ 	pch->thread->req_running = -1;
+@@ -2307,15 +2628,49 @@
+ 		dma_cookie_complete(&desc->txd);
+ 	}
+ 
++	if (continuous)
++		spin_lock(&pl330->pool_lock);
+ 	list_splice_tail_init(&pch->submitted_list, &pl330->desc_pool);
+ 	list_splice_tail_init(&pch->work_list, &pl330->desc_pool);
+ 	list_splice_tail_init(&pch->completed_list, &pl330->desc_pool);
++	if (continuous)
++		spin_unlock(&pl330->pool_lock);
+ 	spin_unlock_irqrestore(&pch->lock, flags);
+ 	if (power_down)
+ 		pm_runtime_put_autosuspend(pl330->ddma.dev);
+ 	pm_runtime_put_autosuspend(pl330->ddma.dev);
+ 
+ 	return 0;
++}
++
++static void pl330_synchronize(struct dma_chan *chan)
++{
++	struct dma_pl330_chan *pch = to_pchan(chan);
++	unsigned long flags;
++	bool owned;
++
++	/* Still true after terminate returned the descriptor to the pool. */
++	if (!pch->continuous_sync)
++		return;
++	tasklet_kill(&pch->task);
++	for (;;) {
++		spin_lock_irqsave(&pch->lock, flags);
++		owned = pl330_has_continuous(pch);
++		spin_unlock_irqrestore(&pch->lock, flags);
++		if (!owned || !pl330_terminate_all(chan))
++			break;
++		/*
++		 * ALSA STOP may ignore terminate_async's error. A void synchronize
++		 * cannot report failure: never return and let it free a live ring.
++		 * A permanently wedged channel blocks audio close, not other DMA
++		 * clients via a global reset. No spinlock is held during this wait.
++		 */
++		dev_err_ratelimited(pch->dmac->ddma.dev,
++			"Waiting for continuous DMA to stop before releasing its buffer\n");
++		msleep(20);
++	}
++	/* A fault IRQ may have queued a tasklet while termination was retried. */
++	tasklet_kill(&pch->task);
+ }
+ 
+ /*
+@@ -2331,22 +2686,37 @@
+ 	struct pl330_dmac *pl330 = pch->dmac;
+ 	struct dma_pl330_desc *desc;
+ 	unsigned long flags;
++	int ret = 0;
+ 
+ 	pm_runtime_get_sync(pl330->ddma.dev);
+ 	spin_lock_irqsave(&pch->lock, flags);
+ 
+ 	spin_lock(&pl330->lock);
+-	_stop(pch->thread);
++	if (pl330_has_continuous(pch)) {
++		ret = pl330_continuous_stop(pch->thread);
++		if (ret) {
++			pl330_continuous_cancel(pch);
++		} else {
++			list_for_each_entry(desc, &pch->work_list, node)
++				if (desc->continuous) {
++					pl330_continuous_position(desc,
++						readl(pl330->base + SA(pch->thread->id)));
++					desc->period_pending = 0;
++				}
++		}
++	} else {
++		_stop(pch->thread);
++	}
+ 	spin_unlock(&pl330->lock);
+ 
+ 	list_for_each_entry(desc, &pch->work_list, node) {
+-		if (desc->status == BUSY)
++		if (!ret && desc->status == BUSY)
+ 			desc->status = PAUSED;
+ 	}
+ 	spin_unlock_irqrestore(&pch->lock, flags);
+ 	pm_runtime_put_autosuspend(pl330->ddma.dev);
+ 
+-	return 0;
++	return ret;
+ }
+ 
+ static void pl330_free_chan_resources(struct dma_chan *chan)
+@@ -2354,6 +2724,12 @@
+ 	struct dma_pl330_chan *pch = to_pchan(chan);
+ 	struct pl330_dmac *pl330 = pch->dmac;
+ 	unsigned long flags;
++
++	/* A void release also must not return while hardware owns the ring. */
++	if (pch->continuous_sync) {
++		pl330_terminate_all(chan);
++		pl330_synchronize(chan);
++	}
+ 
+ 	tasklet_kill(&pch->task);
+ 
+@@ -2390,6 +2766,8 @@
+ 	}
+ 	pm_runtime_mark_last_busy(pch->dmac->ddma.dev);
+ 	pm_runtime_put_autosuspend(pl330->ddma.dev);
++	if (desc->continuous)
++		return pl330_continuous_position(desc, val);
+ 
+ 	/* If DMAMOV hasn't finished yet, SAR/DAR can be zero */
+ 	if (!val)
+@@ -2410,7 +2788,7 @@
+ 
+ 	ret = dma_cookie_status(chan, cookie, txstate);
+ 
+-	if (!txstate)
++	if (!txstate && !pch->continuous_sync)
+ 		return ret;
+ 
+ 	if (ret == DMA_COMPLETE)
+@@ -2423,6 +2801,32 @@
+ 		running = pch->thread->req[pch->thread->req_running].desc;
+ 
+ 	last_enq = pch->thread->req[pch->thread->lstenq].desc;
++
++	if (pch->continuous_sync) {
++		list_for_each_entry(desc, &pch->submitted_list, node)
++			if (desc->continuous && desc->txd.cookie == cookie) {
++				residual = desc->ring_bytes;
++				ret = DMA_IN_PROGRESS;
++				goto status_unlock;
++			}
++		list_for_each_entry(desc, &pch->work_list, node)
++			if (desc->continuous && desc->txd.cookie == cookie) {
++				if (desc->continuous_fault || desc->status == DONE)
++					ret = DMA_ERROR;
++				else if (desc->status == PAUSED)
++					ret = DMA_PAUSED;
++				else
++					ret = DMA_IN_PROGRESS;
++				transferred = desc->continuous_pos;
++				if (txstate && ret == DMA_IN_PROGRESS &&
++				    desc->status == BUSY && desc == running)
++					transferred = pl330_get_current_xferred_count(pch, desc);
++				residual = desc->ring_bytes - transferred;
++				goto status_unlock;
++			}
++	}
++	if (!txstate)
++		goto status_unlock;
+ 
+ 	/* Check in pending list */
+ 	list_for_each_entry(desc, &pch->work_list, node) {
+@@ -2463,11 +2867,13 @@
+ 		if (desc->last)
+ 			residual = 0;
+ 	}
++status_unlock:
+ 	spin_unlock(&pch->thread->dmac->lock);
+ 	spin_unlock_irqrestore(&pch->lock, flags);
+ 
+ out:
+-	dma_set_residue(txstate, residual);
++	if (txstate)
++		dma_set_residue(txstate, residual);
+ 
+ 	return ret;
+ }
+@@ -2476,6 +2882,7 @@
+ {
+ 	struct dma_pl330_chan *pch = to_pchan(chan);
+ 	unsigned long flags;
++	bool continuous;
+ 
+ 	spin_lock_irqsave(&pch->lock, flags);
+ 	if (list_empty(&pch->work_list)) {
+@@ -2489,9 +2896,13 @@
+ 		pm_runtime_get_sync(pch->dmac->ddma.dev);
+ 	}
+ 	list_splice_tail_init(&pch->submitted_list, &pch->work_list);
++	continuous = pch->continuous_sync && pl330_has_continuous(pch);
+ 	spin_unlock_irqrestore(&pch->lock, flags);
+ 
+-	pl330_tasklet(&pch->task);
++	if (continuous)
++		tasklet_schedule(&pch->task);
++	else
++		pl330_tasklet(&pch->task);
+ }
+ 
+ /*
+@@ -2581,6 +2992,11 @@
+ 		desc->status = PREP;
+ 		desc->txd.callback = NULL;
+ 		desc->txd.callback_result = NULL;
++		desc->continuous = false;
++		desc->ring_bytes = 0;
++		desc->period_pending = 0;
++		desc->continuous_pos = 0;
++		desc->continuous_fault = false;
+ 	}
+ 
+ 	spin_unlock_irqrestore(lock, flags);
+@@ -2675,6 +3091,19 @@
+ 	return burst_len;
+ }
+ 
++static bool pl330_continuous_eligible(struct dma_pl330_chan *pch,
++		dma_addr_t addr, size_t len, size_t period,
++		enum dma_transfer_direction direction)
++{
++	return pch->dmac->v40_continuous_allowed && pch->chan.private &&
++		pch->chan.chan_id == 18 && direction == DMA_MEM_TO_DEV &&
++		pch->fifo_addr == 0xff070024 && pch->burst_sz == 2 &&
++		pch->burst_len == 8 && period == 4096 &&
++		(len == 8192 || len == 16384) &&
++		addr && IS_ALIGNED(addr, 32) && addr <= U32_MAX - len &&
++		IS_ALIGNED(pch->fifo_dma, 4) && pch->fifo_dma <= U32_MAX - 3;
++}
++
+ static struct dma_async_tx_descriptor *pl330_prep_dma_cyclic(
+ 		struct dma_chan *chan, dma_addr_t dma_addr, size_t len,
+ 		size_t period_len, enum dma_transfer_direction direction,
+@@ -2687,7 +3116,7 @@
+ 	dma_addr_t dst;
+ 	dma_addr_t src;
+ 
+-	if (len % period_len != 0)
++	if (!len || !period_len || len % period_len != 0)
+ 		return NULL;
+ 
+ 	if (!is_slave_direction(direction)) {
+@@ -2700,6 +3129,30 @@
+ 
+ 	if (!pl330_prep_slave_fifo(pch, direction))
+ 		return NULL;
++
++	if (pl330_continuous_eligible(pch, dma_addr, len, period_len,
++				       direction)) {
++		desc = pl330_get_desc(pch);
++		if (!desc)
++			return NULL;
++		desc->continuous = true;
++		desc->ring_bytes = len;
++		desc->rqtype = direction;
++		desc->rqcfg.src_inc = 1;
++		desc->rqcfg.dst_inc = 0;
++		desc->rqcfg.brst_size = pch->burst_sz;
++		desc->rqcfg.brst_len = pch->burst_len;
++		desc->bytes_requested = len;
++		desc->txd.flags = flags;
++		fill_px(&desc->px, pch->fifo_dma, dma_addr, period_len);
++		pch->cyclic = true;
++		pch->continuous_sync = true;
++		return &desc->txd;
++	}
++	if (pl330->v40_continuous_allowed && pch->chan.chan_id == 18 &&
++	    direction == DMA_MEM_TO_DEV)
++		dev_info_once(pl330->ddma.dev,
++			"V40 continuous diagnostic: unsupported playback shape, using original cyclic path\n");
+ 
+ 	for (i = 0; i < len / period_len; i++) {
+ 		desc = pl330_get_desc(pch);
+@@ -3039,6 +3492,12 @@
+ 			pl330->quirks |= of_quirks[i].id;
+ 
+ 	res = &adev->res;
++	pl330->v40_continuous_allowed = v40_continuous &&
++		of_machine_is_compatible("v40-port,rk3326-handheld") &&
++		res->start == 0xff240000 && resource_size(res) == 0x4000;
++	if (pl330->v40_continuous_allowed)
++		dev_info(&adev->dev,
++			"V40 continuous-cyclic diagnostic enabled (exact playback geometry only)\n");
+ 	pl330->base = devm_ioremap_resource(&adev->dev, res);
+ 	if (IS_ERR(pl330->base))
+ 		return PTR_ERR(pl330->base);
+@@ -3142,6 +3601,8 @@
+ 	pd->device_config = pl330_config;
+ 	pd->device_pause = pl330_pause;
+ 	pd->device_terminate_all = pl330_terminate_all;
++	if (pl330->v40_continuous_allowed)
++		pd->device_synchronize = pl330_synchronize;
+ 	pd->device_issue_pending = pl330_issue_pending;
+ 	pd->src_addr_widths = PL330_DMA_BUSWIDTHS;
+ 	pd->dst_addr_widths = PL330_DMA_BUSWIDTHS;

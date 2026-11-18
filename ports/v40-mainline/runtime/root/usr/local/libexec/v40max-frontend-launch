@@ -1,0 +1,46 @@
+#!/bin/bash
+# Preserve the distribution executable/libraries and fall back if this bridge fails.
+set -u
+binary=$1
+shift
+if [[ $(uname -r) == 7.3.4-v40.1 ]]; then
+  candidate=/usr/local/lib/v40-mainline/emulationstation
+  actual=$(/usr/bin/sha256sum -- "$candidate")
+  if [[ ${actual%% *} != @FRONTEND_SHA256@ ]]; then
+    echo 'v40-mainline: rebuilt frontend fingerprint differs' >&2
+    exit 1
+  fi
+  /usr/local/libexec/v40-mainline-resources "${candidate%/*}/resources" || exit 1
+  . /usr/local/share/v40-mainline/environment.sh
+  export ES_RUNTIME_MEDIA=1
+  exec "$candidate" "$@"
+fi
+library=/usr/local/lib/v40-frontend-bridge/libv40-frontend-bridge.so
+expected=ad5080b4b1c781e7951fce12f72c07740d9c4e3f8ba24b35b0ac3b70dfba41ba
+runtime=${XDG_RUNTIME_DIR:-/run/ark-emulationstation}
+if [[ -e /run/v40max-frontend-bridge.disabled || -e "$runtime/bridge-bypass" || ! -r "$library" ]]; then
+  exec "$binary" "$@"
+fi
+actual=$(/usr/bin/sha256sum -- "$binary")
+if [[ ${actual%% *} != "$expected" ]]; then
+  echo 'v40-bridge: executable differs; launching unchanged frontend without bridge' >&2
+  exec "$binary" "$@"
+fi
+previous=${LD_PRELOAD:-}
+preload=$library
+[[ -z "$previous" ]] || preload="$preload:$previous"
+stopping=no
+child=
+trap 'stopping=yes; [[ -z "$child" ]] || kill -TERM "$child" 2>/dev/null || true' TERM INT HUP
+env V40_PREVIOUS_LD_PRELOAD="$previous" LD_PRELOAD="$preload" "$binary" "$@" &
+child=$!
+wait "$child"
+result=$?
+if [[ "$stopping" == yes ]]; then exit "$result"; fi
+if [[ $result -ne 0 && ! -f /tmp/es-shutdown && ! -f /tmp/es-sysrestart && ! -f /tmp/es-restart ]]; then
+  echo "v40-bridge: frontend exited $result; bypassing bridge and launching original frontend" >&2
+  touch "$runtime/bridge-bypass"
+  rm -f "$runtime/media-state"
+  exec "$binary" "$@"
+fi
+exit "$result"

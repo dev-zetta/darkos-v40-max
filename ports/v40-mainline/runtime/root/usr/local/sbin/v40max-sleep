@@ -1,0 +1,119 @@
+#!/usr/bin/python3
+"""Coordinate main-thread frontend media, mixer state and board workarounds."""
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+STATE=Path('/run/ark-emulationstation/media-state')
+WORK=Path('/run/v40max-sleep')
+MAINLINE=os.uname().release=='7.3.4-v40.1'
+MIXER=Path('/var/lib/alsa/asound-mainline.state' if MAINLINE else '/var/lib/alsa/asound.state')
+CARD0_ID=Path('/proc/asound/card0/id')
+SOUND_DEVICES=Path('/dev/snd')
+BRIGHT=Path('/sys/devices/platform/backlight/backlight/backlight/brightness')
+
+def run(*args,optional=False,timeout=None):
+    try:
+        p=subprocess.run(args,text=True,capture_output=True,timeout=timeout)
+    except subprocess.TimeoutExpired:
+        print('v40max-sleep:',args,'timed out',file=sys.stderr,flush=True)
+        return False
+    if (p.returncode or p.stderr.strip()) and not optional:
+        print('v40max-sleep:',args,('failed:' if p.returncode else 'message:'),p.stderr.strip(),file=sys.stderr,flush=True)
+    return p.returncode==0
+
+def frontend():
+    try:
+        fields=STATE.read_text().split()
+        pid=int(fields[0])
+        if Path('/proc',str(pid),'exe').resolve()!=Path('/usr/local/lib/v40-mainline/emulationstation' if MAINLINE else '/usr/bin/emulationstation/emulationstation'): return None
+        return pid,fields[1]
+    except (OSError,ValueError,IndexError): return None
+
+def media(suspend):
+    current=frontend()
+    if not current: return
+    pid,_=current
+    try: os.kill(pid,signal.SIGUSR1 if suspend else signal.SIGUSR2)
+    except ProcessLookupError: return
+    deadline=time.monotonic()+5
+    wanted=('suspended','external') if suspend else ('active','external')
+    while time.monotonic()<deadline:
+        state=frontend()
+        if not state or state[0]!=pid: return
+        if state[1] in wanted:
+            print('v40max-sleep: frontend',state[1],flush=True)
+            return
+        time.sleep(.02)
+    print('v40max-sleep: frontend acknowledgement timed out',file=sys.stderr,flush=True)
+
+def restart_if_active(unit):
+    if run('systemctl','is-active','--quiet',unit,optional=True): run('systemctl','restart',unit)
+
+def restore_mixer(*card, timeout=None):
+    if not (SOUND_DEVICES/'controlC0').exists() or not MIXER.exists():
+        return False
+    return run('/usr/sbin/alsactl','-l','-I','-U','-f',str(MIXER),'restore',*card,timeout=timeout)
+
+def restore_onboard_mixer():
+    try:
+        card_id = CARD0_ID.read_text().strip()
+    except OSError:
+        return False
+    if card_id != 'rockchiprk817co':
+        return False
+    if restore_mixer('0', timeout=1):
+        print('v40max-sleep: restored saved RK817 mixer state before USB reinitialization',flush=True)
+        return True
+    return False
+
+def main(phase):
+    WORK.mkdir(mode=0o755,exist_ok=True)
+    if phase=='pre':
+        if not run('/usr/local/sbin/v40max-media-control','pre'): return 1
+        if BRIGHT.exists():
+            (WORK/'brightness').write_text(BRIGHT.read_text())
+            BRIGHT.write_text('0\n')
+        run('/usr/sbin/alsactl','-l','-U','-f',str(MIXER),'store')
+        modules=Path('/proc/modules').read_text()
+        if any(line.startswith('esp8089 ') for line in modules.splitlines()):
+            if run('modprobe','-r','esp8089'): (WORK/'esp8089').touch()
+        if run('systemctl','is-active','--quiet','v40max-usb-gadget.service',optional=True):
+            (WORK/'usb-gadget').touch()
+            run('systemctl','stop','v40max-usb-gadget.service')
+        if not MAINLINE: run('modprobe','-r','dwc2')
+        if Path('/usr/local/bin/quickmode.sh').exists(): Path('/dev/shm/.JUSTWOKEUP').touch()
+        run('timeout','10','journalctl','--sync')
+        os.sync()
+    elif phase=='post':
+        # The codec powers up at high gain. Restore the onboard level as
+        # soon as the post hook runs, before waiting for USB devices.
+        onboard_restored = restore_onboard_mixer()
+        if not MAINLINE: run('modprobe','-r','dwc2')
+        if not MAINLINE: run('modprobe','dwc2')
+        if not MAINLINE: time.sleep(2) # Preserve the stock USB delay on the old kernel.
+        if (WORK/'esp8089').exists():
+            if run('modprobe','esp8089'): (WORK/'esp8089').unlink()
+        if (WORK/'usb-gadget').exists():
+            run('systemctl','--no-block','start','v40max-usb-gadget.service')
+            (WORK/'usb-gadget').unlink()
+        controls = {path.name for path in SOUND_DEVICES.glob('controlC[0-9]*')}
+        if not onboard_restored or controls != {'controlC0'}:
+            # USB audio cards may appear only after the controller is back.
+            for _ in range(10):
+                if restore_mixer():
+                    print('v40max-sleep: restored saved ALSA mixer state after USB reinitialization',flush=True)
+                    break
+                time.sleep(.1)
+            else:
+                print('v40max-sleep: saved mixer state was not restored',file=sys.stderr,flush=True)
+        restart_if_active('killer_daemon.service')
+        restart_if_active('batt_led.service')
+        run('/usr/local/sbin/v40max-media-control','post')
+        if BRIGHT.exists() and (WORK/'brightness').exists(): BRIGHT.write_text((WORK/'brightness').read_text())
+    return 0
+
+if __name__=='__main__': sys.exit(main(sys.argv[1]))

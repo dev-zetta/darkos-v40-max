@@ -1,0 +1,253 @@
+name: V40 Max bootable image
+
+on:
+  push:
+    branches: [main, v40-mainline-7.3.4]
+    paths:
+      - .github/workflows/v40-image.yml
+      - ports/v40-mainline/**
+    tags:
+      - v40-image-*
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: v40-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kernel:
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            ports/v40-mainline
+            boot/dArkOS/consoles/r36splus
+      - name: Build the pinned V40 kernel and modules
+        run: |
+          port="$GITHUB_WORKSPACE/ports/v40-mainline"
+          work="$RUNNER_TEMP/kernel"
+          mkdir -p "$work" "$work/payload"
+          curl -fsSL --retry 3 "$(jq -er .archive_url "$port/kernel/source-lock.json")" -o "$work/linux.tar.xz"
+          docker build --target kernel-builder --tag v40-image-kernel "$port"
+          docker run --rm --network none --user "$(id -u):$(id -g)" --env JOBS="$(nproc)" --env KCFLAGS=-Werror \
+            --volume "$port:/port:ro" --volume "$work:/work" v40-image-kernel bash -euc '
+              python3 /port/scripts/prepare_kernel.py --archive /work/linux.tar.xz \
+                --source /work/linux --continuous-dma --dacmt-guard
+              bash /port/scripts/build_kernel.sh /work/linux /work/output
+            '
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends device-tree-compiler zstd
+          donor=boot/dArkOS/consoles/r36splus/rk3326-r36splus-linux.dtb
+          printf '%s  %s\n' "$(jq -er .bootstrap_donor_dtb_sha256 "$port/image-inputs.json")" "$donor" | sha256sum -c -
+          python3 "$port/scripts/build_uboot_profile.py" \
+            --donor "$donor" \
+            --kernel-source "$work/linux" --output "$work/payload/bootstrap.dtb"
+          cp "$work/output/arch/arm64/boot/Image" "$work/output/arch/arm64/boot/dts/rockchip/rk3326-v40-max.dtb" "$work/payload/"
+          cp -a "$work/output/modules-root/lib/modules" "$work/payload/"
+          rm -f "$work/payload/modules/7.3.4-v40.1"/{build,source}
+          manifest="$port/kernel/release-7.3.4-v40.1.json"
+          printf '%s  %s\n' "$(jq -er .module_symvers_sha256 "$manifest")" "$work/output/Module.symvers" \
+            "$(jq -er .dtb_sha256 "$manifest")" "$work/payload/rk3326-v40-max.dtb" | sha256sum -c -
+          tar -C "$work/payload" -cf - . | zstd -q -T2 -o "$work/kernel.tar.zst"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: v40-image-kernel
+          path: ${{ runner.temp }}/kernel/kernel.tar.zst
+          compression-level: 0
+          if-no-files-found: error
+
+  runtime:
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: ports/v40-mainline
+      - name: Build both graphics architectures and the frontend
+        run: |
+          port="$GITHUB_WORKSPACE/ports/v40-mainline"
+          work="$RUNNER_TEMP/runtime"
+          mkdir -p "$work"
+          docker build --target v40-builder --tag v40-image-userspace "$port"
+          docker run --rm --user "$(id -u):$(id -g)" --env JOBS="$(nproc)" --env HOME=/work/home \
+            --volume "$port:/port:ro" --volume "$work:/work" v40-image-userspace bash -euc '
+              mkdir -p "$HOME"
+              bash /port/scripts/build_image_runtime.sh /work/build /work/root
+            '
+          tar -C "$work/root" -cf - . | zstd -q -T2 -o "$work/runtime.tar.zst"
+          cp "$work/build"/{runtime-build.json,runtime-sources.tar.xz} "$work/"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: v40-image-runtime
+          path: |
+            ${{ runner.temp }}/runtime/runtime.tar.zst
+            ${{ runner.temp }}/runtime/runtime-build.json
+            ${{ runner.temp }}/runtime/runtime-sources.tar.xz
+          compression-level: 0
+          if-no-files-found: error
+
+  ppsspp:
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: ports/v40-mainline
+      - name: Build standard PPSSPP for ARM64
+        run: |
+          port="$GITHUB_WORKSPACE/ports/v40-mainline"
+          work="$RUNNER_TEMP/ppsspp"
+          mkdir -p "$work"
+          docker build --target v40-builder --tag v40-image-userspace "$port"
+          docker run --rm --user "$(id -u):$(id -g)" --env JOBS="$(nproc)" --env HOME=/work/home \
+            --volume "$port:/port:ro" --volume "$work:/work" v40-image-userspace bash -euc '
+              mkdir -p "$HOME"
+              bash /port/scripts/build_image_ppsspp.sh /work/build /work/ppsspp
+            '
+          tar -C "$work/ppsspp" -cf - . | zstd -q -T2 -o "$work/ppsspp.tar.zst"
+          cp "$work/build/ppsspp-1.20.4.tar.xz" "$work/"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: v40-image-ppsspp
+          path: |
+            ${{ runner.temp }}/ppsspp/ppsspp.tar.zst
+            ${{ runner.temp }}/ppsspp/ppsspp-1.20.4.tar.xz
+          compression-level: 0
+          if-no-files-found: error
+
+  image:
+    needs: [kernel, runtime, ppsspp]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            ports/v40-mainline
+            uboot
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: v40-image-*
+          path: ${{ runner.temp }}/inputs
+      - name: Install image assembly tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils btrfs-progs device-tree-compiler dosfstools exfatprogs fdisk p7zip-full rsync zstd
+          df -h "$RUNNER_TEMP"
+      - name: Assemble and verify the disk image
+        run: |
+          work="$RUNNER_TEMP"
+          for kind in kernel runtime ppsspp; do
+            mkdir "$work/$kind"
+            tar --zstd -xf "$work/inputs/v40-image-$kind/$kind.tar.zst" -C "$work/$kind"
+          done
+          sudo bash ports/v40-mainline/scripts/build_full_image.sh \
+            "$work/assembly" "$work/kernel" "$work/runtime" "$work/ppsspp" "$work/disk"
+          sudo chown -R "$(id -u):$(id -g)" "$work/disk"
+      - name: Package the checked image and source information
+        run: |
+          work="$RUNNER_TEMP"
+          version=ArkOS4Clone-V40-Max-Linux-7.3.4-v40.1
+          mkdir "$work/release"
+          xz -T2 -3 -c "$work/disk/$version.img" |
+            split --bytes=1900M --numeric-suffixes=1 --suffix-length=3 - "$work/release/$version.img.xz."
+          chunks=("$work/release/$version.img.xz."*)
+          cat "${chunks[@]}" | xz --test
+          if [[ ${#chunks[@]} == 1 ]]; then mv "${chunks[0]}" "$work/release/$version.img.xz"; fi
+          cp "$work/disk/IMAGE-SHA256SUMS" "$work/release/"
+          cp "$work/inputs/v40-image-ppsspp/ppsspp-1.20.4.tar.xz" "$work/release/"
+          cp "$work/inputs/v40-image-runtime"/{runtime-build.json,runtime-sources.tar.xz} "$work/release/"
+          cp ports/v40-mainline/{IMAGE.md,image-inputs.json} "$work/release/"
+          git rev-parse HEAD > "$work/release/SOURCE_COMMIT"
+          (cd "$work/release" && sha256sum -- * > SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: v40-bootable-image
+          path: ${{ runner.temp }}/release/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: github.repository == 'dev-zetta/arkos4clone' && startsWith(github.ref, 'refs/tags/v40-image-')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Fetch the checked branch build for this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for branch in main v40-mainline-7.3.4; do
+            run=$(gh run list --workflow v40-image.yml --branch "$branch" \
+              --commit "$GITHUB_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            if [[ -n "$run" ]]; then break; fi
+          done
+          if [[ -z "$run" ]]; then
+            printf '%s\n' 'No successful V40 image build for this commit.' >&2
+            exit 1
+          fi
+          gh run download "$run" --name v40-bootable-image --dir "$RUNNER_TEMP/release"
+      - name: Verify assets and publish V40 prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cd "$RUNNER_TEMP/release"
+          test "$(cat SOURCE_COMMIT)" = "$GITHUB_SHA"
+          sha256sum -c SHA256SUMS
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            printf 'V40 Max 720×720 SD-card image. See the [installation and validation guide](%s/%s/blob/%s/ports/v40-mainline/IMAGE.md).\n\n' \
+              "$GITHUB_SERVER_URL" "$GH_REPO" "$GITHUB_SHA"
+            printf 'The numbered image parts, if present, are joined in order before decompression. Verify both sets of checksums. Use a spare card of at least 16 GB.\n\n'
+            printf 'Kernel Linux 7.3.4-v40.1. Debian-based dArkOS4Clone userspace, matching source manifests, and standard PPSSPP.\n'
+          } > "$notes"
+          if gh release view "$RELEASE_TAG" --json apiUrl,isDraft,tagName,targetCommitish > "$RUNNER_TEMP/existing-release.json"; then
+            jq -e --arg tag "$RELEASE_TAG" --arg sha "$GITHUB_SHA" \
+              '.tagName == $tag and .targetCommitish == $sha' "$RUNNER_TEMP/existing-release.json"
+            if jq -e .isDraft "$RUNNER_TEMP/existing-release.json" > /dev/null; then
+              gh release upload "$RELEASE_TAG" --clobber ./*
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --target "$GITHUB_SHA" \
+              --draft --prerelease --latest=false --title "ArkOS4Clone V40 Max Linux 7.3.4-v40.1" \
+              --notes-file "$notes" ./*
+          fi
+          release_api=$(gh release view "$RELEASE_TAG" --json apiUrl --jq .apiUrl)
+          gh api "$release_api" > "$RUNNER_TEMP/release.json"
+          python3 - "$RUNNER_TEMP/release.json" <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+          import sys
+
+          release = json.loads(Path(sys.argv[1]).read_text())
+          expected = {p.name: p for p in Path(".").iterdir() if p.is_file()}
+          assert {item["name"] for item in release["assets"]} == expected.keys()
+          for asset in release["assets"]:
+              with expected[asset["name"]].open("rb") as stream:
+                  assert asset["digest"] == "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
+          PY
+          if jq -e .draft "$RUNNER_TEMP/release.json" > /dev/null; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
+          fi

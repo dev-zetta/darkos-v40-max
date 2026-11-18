@@ -1,0 +1,66 @@
+#!/usr/bin/python3
+"""Restore the mainline mixer and discover the ALSA CARD headphone-jack control."""
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+
+def headphone_route():
+    try:
+        compatibles = Path('/sys/firmware/devicetree/base/compatible').read_bytes().split(b'\0')
+    except OSError:
+        compatibles = []
+    if b'v40-port,rk3326-handheld' in compatibles:
+        # This board's speaker is fed by the headphone DAC path. The working
+        # BSP selected SPK_HP even with no headphones; mainline HP playback
+        # has been confirmed audible from the built-in speaker. Keep the
+        # same DAC path for both jack states; jack pin reporting stays intact.
+        return 'HP'
+    controls = subprocess.run(['amixer', '-c', '0', 'controls'],
+                              text=True, capture_output=True, check=True).stdout
+    match = re.search(r"numid=(\d+),iface=CARD,name='(?:Headphones?|Headset) Jack'", controls)
+    if match:
+        jack = subprocess.run(['amixer', '-c', '0', 'cget', 'numid=' + match[1]],
+                              text=True, capture_output=True, check=True).stdout
+        return 'HP' if re.search(r'^\s*:\s*values=(on|true|1)\b', jack, re.MULTILINE) else 'SPK'
+    print('v40-mainline-alsa: no CARD headphone-jack control; selecting speaker', file=sys.stderr)
+    return 'SPK'
+
+
+def main():
+    mainline = os.uname().release == '7.3.4-v40.1'
+    action = sys.argv[1]
+    state = Path('/var/lib/alsa/asound-mainline.state' if mainline else '/var/lib/alsa/asound.state')
+    if action == 'store-local' and not mainline:
+        state = Path('/var/local/asound.state')
+    if action == 'store-if-absent' and state.exists():
+        return 0
+    # alsactl only locks its default state path automatically. This alternate
+    # path is shared by boot, audio-route and shutdown services; enable its
+    # native lock so concurrent saves cannot race over the common .new file.
+    locking = ['-l'] if mainline else []
+    if action in ('store', 'store-local', 'store-if-absent'):
+        return subprocess.call(['/usr/sbin/alsactl', *locking, '-U', '-f', str(state), 'store'])
+    if action != 'restore':
+        raise SystemExit('Use restore, store, store-local or store-if-absent')
+    if not mainline:
+        os.execv('/usr/sbin/alsactl', ['alsactl', '-E', 'HOME=/run/alsa', '-E', 'XDG_RUNTIME_DIR=/run/alsa/runtime', '-U', 'restore'])
+    if state.exists():
+        subprocess.run(['/usr/sbin/alsactl', '-l', '-I', '-U', '-f', str(state), 'restore'], check=True)
+    else:
+        try:
+            legacy = Path('/var/lib/alsa/asound.state').read_text()
+        except OSError:
+            legacy = ''
+        saved = re.search(r"name 'Playback Volume'\s+value\.0 (\d+)", legacy)
+        volume = min(255, int(saved[1])) if saved else 64
+        subprocess.run(['amixer', '-q', '-c', '0', 'sset', 'Playback', f'{volume},{volume}'], check=True)
+    subprocess.run(['amixer', '-q', '-c', '0', 'sset', 'Playback Mux', headphone_route()], check=True)
+    subprocess.run(['/usr/sbin/alsactl', '-l', '-U', '-f', str(state), 'store'], check=True)
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,3 +1,19 @@
+# V40 mainline battery/status follow-up, 2026-11-16
+
+Recorded controlled idle-audio isolation and source research in ports/v40-mainline/docs/AUDIO_ANALOG_20261116.md. Static persisted through verified digital mute and normal codec power-down; physical adapter removal stopped repeating cracks while static remained. Temporary controls were restored. No audio fix or new kernel image is claimed by this investigation checkpoint.
+
+Added USB-C and Bluetooth reference results: USB-C noise remained, while the final audible Bluetooth reference had clean gaps. Documented the separate unresolved shutdown near reported 19 percent, actual UPower thresholds and later PMIC cause snapshot without changing battery protection or calibration.
+
+Recorded the directly read TCS7191CB external amplifier, rejected earlier NS-family guesses, and the actual 4000 mAh battery label versus inherited design/retained FCC values. Noise persisted after battery disconnection. The timed WLAN driver-detachment and restoration passed operational checks; its listening result is still pending. No new kernel, battery calibration or amplifier-control GPIO was installed.
+
+Added focused RK817 gauge fixes with upstream authorship preserved and optional external-DC GPIO reporting for the tested board. The Linux 7.3.4-v40.1 rebuild preserves the exact configuration and retained module ABI. Frontend battery discovery now supports rk817-battery, voltage_avg and sysfs newlines; battery percentage fits beside Wi-Fi/Bluetooth and appears in the START-menu footer. The user confirmed charging-icon transitions and both percentage displays after installation. Full-cycle battery accuracy and independent audio static/cracks remain unresolved or unverified. See ports/v40-mainline/docs/BATTERY_STATUS_20261116.md for source identities, validation and limits.
+
+# V40 mainline development branch, 2026-11-15
+
+Added the signed-source Linux 7.3.4 / 7.3.4-v40.1 RK3326 720x720 port, exact kernel configuration, source locks, author-preserving component patches and private Mesa/SDL runtime staging. The port retains stock-wiring gamepad/panel details, board-specific HP-DAC speaker routing, native RTL8851BU Wi-Fi and original games/saves during the tested migration. PSP buffered rendering and complete CRC-specific FN/SELECT/START mapping were physically confirmed after installation. See ports/v40-mainline for build, deployment, source credits and validation details.
+
+Audio scrambling, software-reboot display repeatability, headphone/wake transitions and broader emulator coverage remain unresolved or unverified. The PL330 diagnostic is optional/default off, and unactivated frontend/performance changes are kept separate. No new downloadable image or fully validated public release is claimed.
+
 # ArkOS4Clone 20260927
 
 ## 1. New Features

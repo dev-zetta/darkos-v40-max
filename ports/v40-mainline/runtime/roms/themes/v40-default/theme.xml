@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<theme>
+  <formatVersion>6</formatVersion>
+  <view name="system">
+    <carousel name="systemcarousel">
+      <color>192532ff</color>
+    </carousel>
+    <text name="systemInfo">
+      <color>e5edf5ff</color>
+      <backgroundColor>253548ff</backgroundColor>
+    </text>
+  </view>
+</theme>
