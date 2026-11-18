@@ -47,8 +47,10 @@ jobs:
             '
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends device-tree-compiler zstd
+          donor=boot/dArkOS/consoles/r36splus/rk3326-r36splus-linux.dtb
+          printf '%s  %s\n' "$(jq -er .bootstrap_donor_dtb_sha256 "$port/image-inputs.json")" "$donor" | sha256sum -c -
           python3 "$port/scripts/build_uboot_profile.py" \
-            --donor boot/dArkOS/consoles/r36splus/rk3326-r36splus-linux.dtb \
+            --donor "$donor" \
             --kernel-source "$work/linux" --output "$work/payload/bootstrap.dtb"
           cp "$work/output/arch/arm64/boot/Image" "$work/output/arch/arm64/boot/dts/rockchip/rk3326-v40-max.dtb" "$work/payload/"
           cp -a "$work/output/modules-root/lib/modules" "$work/payload/"
@@ -217,9 +219,17 @@ jobs:
             printf 'The numbered image parts, if present, are joined in order before decompression. Verify both sets of checksums. Use a spare card of at least 16 GB.\n\n'
             printf 'Kernel Linux 7.3.4-v40.1. Debian-based dArkOS4Clone userspace, matching source manifests, and standard PPSSPP.\n'
           } > "$notes"
-          gh release create "$RELEASE_TAG" --verify-tag --target "$GITHUB_SHA" \
-            --draft --prerelease --latest=false --title "ArkOS4Clone V40 Max Linux 7.3.4-v40.1" \
-            --notes-file "$notes" ./*
+          if gh release view "$RELEASE_TAG" --json apiUrl,isDraft,tagName,targetCommitish > "$RUNNER_TEMP/existing-release.json"; then
+            jq -e --arg tag "$RELEASE_TAG" --arg sha "$GITHUB_SHA" \
+              '.tagName == $tag and .targetCommitish == $sha' "$RUNNER_TEMP/existing-release.json"
+            if jq -e .isDraft "$RUNNER_TEMP/existing-release.json" > /dev/null; then
+              gh release upload "$RELEASE_TAG" --clobber ./*
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --target "$GITHUB_SHA" \
+              --draft --prerelease --latest=false --title "ArkOS4Clone V40 Max Linux 7.3.4-v40.1" \
+              --notes-file "$notes" ./*
+          fi
           release_api=$(gh release view "$RELEASE_TAG" --json apiUrl --jq .apiUrl)
           gh api "$release_api" > "$RUNNER_TEMP/release.json"
           python3 - "$RUNNER_TEMP/release.json" <<'PY'
@@ -235,4 +245,6 @@ jobs:
               with expected[asset["name"]].open("rb") as stream:
                   assert asset["digest"] == "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
           PY
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
+          if jq -e .draft "$RUNNER_TEMP/release.json" > /dev/null; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
+          fi

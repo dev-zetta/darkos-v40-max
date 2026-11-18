@@ -11,7 +11,7 @@
     "dArkOS4Clone-20261008.img.xz.7z.003": "96a9566a0b68db8a9416b61b3f3a7ca84bdbbf84fb319711df73e746eca803b7"
   },
   "base_license": "https://github.com/christianhaitian/dArkOS/blob/86bac70b51f6264670b95020aa7d3cf2cede622d/LICENSES.md",
-  "bootstrap_dtb_sha256": "1c434940b210be4ffde57f6f7c3eb80e0ec19deb8b001c61d4d50c8d624d74a8",
+  "bootstrap_donor_dtb_sha256": "1c434940b210be4ffde57f6f7c3eb80e0ec19deb8b001c61d4d50c8d624d74a8",
   "busybox": {
     "url": "https://deb.debian.org/debian/pool/main/b/busybox/busybox-static_1.37.0-6+b9_arm64.deb",
     "sha256": "c833be48abfa16bc19c4966ec93e289ff1ce5d2f1476cad3a57bd105378cd15c"

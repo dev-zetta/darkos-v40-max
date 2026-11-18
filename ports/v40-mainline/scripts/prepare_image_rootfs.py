@@ -190,6 +190,15 @@ def main():
         remove(units / "multi-user.target.wants" / name)
     write(target(root, "etc/ssh/sshd_config.d/10-v40-image.conf"),
           "PermitRootLogin no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n")
+    # Remote Services may first be enabled several boots after flashing the image.
+    write(units / "sshd-keygen.service.d/10-v40-image.conf", """[Unit]
+ConditionFirstBoot=
+ConditionPathIsReadWrite=/etc/ssh
+ConditionPathIsSymbolicLink=!/etc/ssh
+ConditionPathExists=|!/etc/ssh/ssh_host_rsa_key
+ConditionPathExists=|!/etc/ssh/ssh_host_ecdsa_key
+ConditionPathExists=|!/etc/ssh/ssh_host_ed25519_key
+""")
     write(target(root, "usr/local/bin/ArkOS4CloneUpdate.sh"),
           "#!/bin/sh\nprintf '%s\\n' 'Use a V40 mainline release to update this image.'\nsleep 2\n", 0o755)
     for name in ("Install to eMMC.sh", "Switch to SD2 for Roms.sh"):
@@ -205,6 +214,7 @@ def main():
     ):
         for path in target(root, directory).glob(pattern):
             remove(path)
+    target(root, "var/log/journal").mkdir(mode=0o2755, exist_ok=True)
     for relative in (
         "roms.tar", "swapfile", "var/lib/systemd/random-seed", "root/.ssh",
         "home/ark/.ssh", "home/ark/.bash_history", "root/.bash_history",
