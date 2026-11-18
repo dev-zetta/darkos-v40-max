@@ -2,12 +2,15 @@
 # SPDX-License-Identifier: MIT
 """Prepare fresh V40 defaults on a disposable derivative of the public Debian base."""
 import argparse
+from codecs import BOM_UTF8
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+
+from configure_ppsspp import MAPPING
 
 PORT = Path(__file__).resolve().parents[1]
 RELEASE = "7.3.4-v40.1"
@@ -72,6 +75,21 @@ def enable(units, name):
     want = units / "multi-user.target.wants" / name
     remove(want)
     want.symlink_to(f"/etc/systemd/system/{name}")
+
+
+def update_shared_controller_database(root):
+    database = target(root, "opt/inttools/gamecontrollerdb.txt")
+    if database.is_symlink() or not database.is_file():
+        raise ValueError("Expected the donor's shared SDL controller database")
+    original = database.read_bytes()
+    bom = BOM_UTF8 if original.startswith(BOM_UTF8) else b""
+    mapping = MAPPING.encode("ascii")
+    guid = mapping.partition(b",")[0]
+    newline = b"\r\n" if b"\r\n" in original else b"\n"
+    # Apply the parent project's CRC-GUID fix with the V40's tested Guide binding.
+    other_rows = [line for line in original[len(bom):].splitlines(keepends=True)
+                  if line.partition(b",")[0].lower() != guid]
+    database.write_bytes(bom + mapping + newline + b"".join(other_rows))
 
 
 def set_default_settings(root):
@@ -174,10 +192,15 @@ def main():
         remove(old_modules / RELEASE / link)
     copy_tree(args.firmware, target(root, "usr/lib/firmware"))
     prepare_ppsspp(root, args.ppsspp)
+    update_shared_controller_database(root)
 
     units = target(root, "etc/systemd/system")
-    for name in ("firstboot.service", "wifi_importer.service"):
-        remove(units / "multi-user.target.wants" / name)
+    for name, wanted_by in (
+        ("firstboot.service", "multi-user.target"),
+        ("wifi_importer.service", "multi-user.target"),
+        ("welcome-message.service", "sysinit.target"),
+    ):
+        remove(units / f"{wanted_by}.wants" / name)
         remove(units / name)
         (units / name).symlink_to("/dev/null")
     for name in ("emulationstation.service", "ogage.service", "v40max-alsa-state.service"):

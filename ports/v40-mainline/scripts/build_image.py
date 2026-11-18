@@ -321,7 +321,11 @@ def assemble(args):
                 mount_part(boot_dev, boot, "vfat", "rw,umask=0022", mount_cleanup)
                 mount_part(root_dev, root, "btrfs", "rw,noatime,compress=zlib,nospace_cache", mount_cleanup)
                 mount_part(roms_dev, roms, "exfat", "rw,umask=0022", mount_cleanup)
-                run("rsync", "-aHAXS", "--numeric-ids", "--one-file-system", f"{args.rootfs}/", f"{root}/")
+                root_copy = ("-aHAXS", "--numeric-ids", "--one-file-system", f"{args.rootfs}/", f"{root}/")
+                run("rsync", *root_copy)
+                differences = run("rsync", "--checksum", "--dry-run", "--itemize-changes", *root_copy, capture=True)
+                if differences:
+                    raise RuntimeError(f"ROOTFS copy differs from staging:\n{differences}")
                 prepare_fstab(root, root_uuid, boot_uuid, roms_uuid)
                 if args.roms is not None:
                     run("rsync", "-rt", "--no-perms", "--no-owner", "--no-group", f"{args.roms}/", f"{roms}/")

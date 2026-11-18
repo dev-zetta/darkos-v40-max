@@ -5,7 +5,9 @@ on:
     branches: [main, v40-mainline-7.3.4]
     paths:
       - .github/workflows/v40-image.yml
+      - boot/dArkOS/consoles/r36splus/rk3326-r36splus-linux.dtb
       - ports/v40-mainline/**
+      - uboot/**
     tags:
       - v40-image-*
 
@@ -173,7 +175,7 @@ jobs:
           cp "$work/disk/IMAGE-SHA256SUMS" "$work/release/"
           cp "$work/inputs/v40-image-ppsspp/ppsspp-1.20.4.tar.xz" "$work/release/"
           cp "$work/inputs/v40-image-runtime"/{runtime-build.json,runtime-sources.tar.xz} "$work/release/"
-          cp ports/v40-mainline/{IMAGE.md,image-inputs.json} "$work/release/"
+          cp ports/v40-mainline/{CHANGELOG.md,IMAGE.md,image-inputs.json} "$work/release/"
           git rev-parse HEAD > "$work/release/SOURCE_COMMIT"
           (cd "$work/release" && sha256sum -- * > SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -220,7 +222,7 @@ jobs:
             printf 'V40 Max 720×720 SD-card image. See the [installation and validation guide](%s/%s/blob/%s/ports/v40-mainline/IMAGE.md).\n\n' \
               "$GITHUB_SERVER_URL" "$GH_REPO" "$GITHUB_SHA"
             printf 'The numbered image parts, if present, are joined in order before decompression. Verify both sets of checksums. Use a spare card of at least 16 GB.\n\n'
-            printf 'Kernel Linux 7.3.4-v40.1. Debian-based dArkOS4Clone userspace, matching source manifests, and standard PPSSPP.\n'
+            cat CHANGELOG.md
           } > "$notes"
           if gh release view "$RELEASE_TAG" --json apiUrl,isDraft,tagName,targetCommitish > "$RUNNER_TEMP/existing-release.json"; then
             jq -e --arg tag "$RELEASE_TAG" --arg sha "$GITHUB_SHA" \
@@ -230,7 +232,7 @@ jobs:
             fi
           else
             gh release create "$RELEASE_TAG" --verify-tag --target "$GITHUB_SHA" \
-              --draft --prerelease --latest=false --title "ArkOS4Clone V40 Max Linux 7.3.4-v40.1" \
+              --draft --prerelease --latest=false --title "dArkOS V40 Max Linux ${RELEASE_TAG#v40-image-}" \
               --notes-file "$notes" ./*
           fi
           release_api=$(gh release view "$RELEASE_TAG" --json apiUrl --jq .apiUrl)
