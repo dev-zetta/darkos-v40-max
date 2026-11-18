@@ -1,0 +1,93 @@
+name: V40 mainline kernel
+
+on:
+  push:
+    branches: [v40-mainline-7.3.4]
+    paths:
+      - .github/workflows/v40-mainline.yml
+      - ports/v40-mainline/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v40-mainline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kernel:
+    name: Build and verify the V40 kernel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the V40 port
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            ports/v40-mainline
+
+      - name: Verify PPSSPP configuration tests
+        run: python3 ports/v40-mainline/tests/test_ppsspp_settings.py
+
+      - name: Download the pinned Linux archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/v40"
+          archive_url=$(python3 -c 'import json; print(json.load(open("ports/v40-mainline/kernel/source-lock.json"))["archive_url"])')
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/v40/linux.tar.xz" "$archive_url"
+
+      - name: Build the Debian kernel toolchain
+        run: docker build --target kernel-builder --tag arkos4clone-v40-kernel-ci ports/v40-mainline
+
+      - name: Prepare source and build kernel, DTB and modules
+        run: |
+          docker run --rm --network none --user "$(id -u):$(id -g)" \
+            --volume "$GITHUB_WORKSPACE/ports/v40-mainline:/port:ro" \
+            --volume "$RUNNER_TEMP/v40:/work" \
+            --env JOBS="$(nproc)" --env KCFLAGS=-Werror \
+            arkos4clone-v40-kernel-ci bash -euc '
+              python3 /port/scripts/prepare_kernel.py --archive /work/linux.tar.xz \
+                --source /work/linux --continuous-dma --dacmt-guard
+              bash /port/scripts/build_kernel.sh /work/linux /work/kernel
+            '
+
+      - name: Verify release ABI and record build checksums
+        run: |
+          output="$RUNNER_TEMP/v40/kernel"
+          artifacts="$RUNNER_TEMP/v40/ci-artifact"
+          mkdir -p "$artifacts"
+          python3 - "$output" <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import sys
+
+          output = Path(sys.argv[1])
+          release = json.loads(Path("ports/v40-mainline/kernel/release-7.3.4-v40.1.json").read_text())
+          for filename, field in (
+              (".config", "config_sha256"),
+              ("Module.symvers", "module_symvers_sha256"),
+              ("arch/arm64/boot/dts/rockchip/rk3326-v40-max.dtb", "dtb_sha256"),
+          ):
+              actual = hashlib.sha256((output / filename).read_bytes()).hexdigest()
+              if actual != release[field]:
+                  raise SystemExit(f"{filename} differs from the release baseline: {actual}")
+          if (output / "include/config/kernel.release").read_text().strip() != release["kernel_release"]:
+              raise SystemExit("Unexpected kernel release")
+          PY
+          cp "$output/arch/arm64/boot/Image" "$output/arch/arm64/boot/dts/rockchip/rk3326-v40-max.dtb" \
+            "$output/Module.symvers" "$artifacts/"
+          cp "$output/.config" "$artifacts/kernel.config"
+          readelf -n "$output/vmlinux" > "$artifacts/build-id.txt"
+          (cd "$artifacts" && sha256sum Image rk3326-v40-max.dtb Module.symvers kernel.config build-id.txt > SHA256SUMS)
+
+      - name: Upload CI rebuild and checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: v40-mainline-ci-rebuild
+          path: ${{ runner.temp }}/v40/ci-artifact/
+          if-no-files-found: error
+          retention-days: 14

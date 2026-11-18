@@ -1,3 +1,9 @@
+FROM debian@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS kernel-builder
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    build-essential gcc-aarch64-linux-gnu libc6-dev-arm64-cross rustc python3 patch \
+    bc bison flex libelf-dev libssl-dev openssl kmod cpio xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 FROM debian@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS runtime-builder
 RUN dpkg --add-architecture arm64 && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     libgtest-dev build-essential crossbuild-essential-arm64 cmake ninja-build pkg-config git ca-certificates python3 \
