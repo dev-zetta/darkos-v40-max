@@ -462,5 +462,22 @@
     "temporary_modules_unloaded": true,
     "kernel_taint_after": 4608,
     "production_fix_installed": false
+  },
+  "clock_driver_correction": {
+    "patch": "kernel/patches/0007-px30-v40-i2s1-fractional-input.patch",
+    "scope": "V40 I2S1 predivider before the provider is made available",
+    "fractional_input_hz": 600000000,
+    "kernel_release": "7.3.4-v40.1",
+    "configuration_sha256": "beb6c89e00283fa170a601bf350fb4d84459fdc19e60e7dfbf617ae2ff665cfd",
+    "candidate_build_id": "cbbfbb465955ab79bbbc852a2c0709e3d4adb690",
+    "candidate_image_sha256": "2a2f417dffd1f5e681656560e196499d32b78b1efd256f8f63586b246b8e7dc1",
+    "unchanged_symbol_exports": 17383,
+    "retained_module_crc_validation": 871,
+    "retained_module_import_crc_validation": 34885,
+    "archived_diagnostic_sha256": "164d0ff675ec6c09a6651f3975e4da78d4a8b077480d7fbfe131efdb2d9d1bc6",
+    "compiled_variant": "Matched running configuration with optional PL330 code and DAC mute guard, both diagnostic settings preserved",
+    "selected_for_next_boot": true,
+    "verified_running": false,
+    "audible_acceptance": null
   }
 }

@@ -101,6 +101,11 @@
       "path": "sound/soc/codecs/rk817_codec.c",
       "before_sha256": "dc2605ada29cab141c5bf9fd9212e07103d9ecdb70c601b27168a7364fa79fa3",
       "after_sha256": "99d1f97f8c8bedf00123056322bf98a2f1f33685853f08f69db22d1eab8ca573"
+    },
+    {
+      "path": "drivers/clk/rockchip/clk-px30.c",
+      "before_sha256": "fae56388ac0ea96536fa0903c56a275fff363cc0966994660095abf2cf06b7e3",
+      "after_sha256": "927d2bd3f279470aaea7b743f32452f58eb9f64d752f0ab2e62b9ad8c7e203bf"
     }
   ],
   "version": "7.3.4",
@@ -113,7 +118,8 @@
     "0003-rk817-nvram-soc.patch",
     "0004-rk817-boot-counter-ocv.patch",
     "0005-rk817-fcc-bound-overflow.patch",
-    "0006-rk817-optional-dc-input.patch"
+    "0006-rk817-optional-dc-input.patch",
+    "0007-px30-v40-i2s1-fractional-input.patch"
   ],
   "optional_patches": [
     "0002-pl330-continuous-diagnostic.patch"

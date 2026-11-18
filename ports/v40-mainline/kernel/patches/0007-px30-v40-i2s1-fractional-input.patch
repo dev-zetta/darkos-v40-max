@@ -1,0 +1,80 @@
+--- a/drivers/clk/rockchip/clk-px30.c
++++ b/drivers/clk/rockchip/clk-px30.c
+@@ -4,6 +4,7 @@
+  * Author: Elaine Zhang<zhangqing@rock-chips.com>
+  */
+ 
++#include <linux/clk.h>
+ #include <linux/clk-provider.h>
+ #include <linux/io.h>
+ #include <linux/of.h>
+@@ -13,6 +14,7 @@
+ #include "clk.h"
+ 
+ #define PX30_GRF_SOC_STATUS0		0x480
++#define PX30_I2S1_FRAC_INPUT_MAX		600000000UL
+ 
+ enum px30_plls {
+ 	apll, dpll, cpll, npll, apll_b_h, apll_b_l,
+@@ -999,6 +1001,53 @@
+ 	"pclk_usb_grf",
+ };
+ 
++static void __init px30_v40_init_i2s1_clock(struct rockchip_clk_provider *ctx)
++{
++	struct clk_hw *mux, *src;
++	struct clk *i2s1;
++	unsigned long rate;
++	int ret;
++
++	if (!of_machine_is_compatible("v40-port,rk3326-handheld"))
++		return;
++
++	i2s1 = rockchip_clk_get_lookup(ctx, SCLK_I2S1);
++	if (IS_ERR_OR_NULL(i2s1))
++		goto unavailable;
++	mux = clk_hw_get_parent(__clk_get_hw(i2s1));
++	if (!mux)
++		goto unavailable;
++	/* Index zero is the integer predivider, regardless of the active mux. */
++	src = clk_hw_get_parent_by_index(mux, 0);
++	if (!src || IS_ERR_OR_NULL(src->clk))
++		goto unavailable;
++
++	/*
++	 * PX30 TRM part 1, section 2.8.3 limits the fractional input to
++	 * 600 MHz. The V40 uses a 1.2 GHz GPLL. Keep the I2S1 prescaler
++	 * at 600 MHz, which also exceeds 20 times the highest RK817
++	 * MCLK (96 kHz * 256). The PCM driver selects the fraction.
++	 *
++	 * Apply this before exposing the provider to consumers. An
++	 * inherited unsafe divider can already give the expected
++	 * nominal MCLK and would otherwise survive a same-rate request.
++	 */
++	ret = clk_set_rate_range(src->clk, PX30_I2S1_FRAC_INPUT_MAX,
++				 PX30_I2S1_FRAC_INPUT_MAX);
++	rate = clk_get_rate(src->clk);
++	if (ret || rate != PX30_I2S1_FRAC_INPUT_MAX) {
++		pr_warn("PX30 V40: I2S1 fractional input setup failed (%d, %lu Hz)\n",
++			ret, rate);
++		return;
++	}
++
++	pr_info("PX30 V40: I2S1 fractional input set to %lu Hz\n", rate);
++	return;
++
++unavailable:
++	pr_warn("PX30 V40: I2S1 fractional input clock unavailable\n");
++}
++
+ static void __init px30_clk_init(struct device_node *np)
+ {
+ 	struct rockchip_clk_provider *ctx;
+@@ -1025,6 +1074,7 @@
+ 				   PX30_GRF_SOC_STATUS0);
+ 	rockchip_clk_register_branches(ctx, px30_clk_branches,
+ 				       ARRAY_SIZE(px30_clk_branches));
++	px30_v40_init_i2s1_clock(ctx);
+ 
+ 	rockchip_clk_register_armclk(ctx, ARMCLK, "armclk",
+ 				     mux_armclk_p, ARRAY_SIZE(mux_armclk_p),
