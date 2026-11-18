@@ -1,80 +1,88 @@
---- a/drivers/clk/rockchip/clk-px30.c
-+++ b/drivers/clk/rockchip/clk-px30.c
-@@ -4,6 +4,7 @@
-  * Author: Elaine Zhang<zhangqing@rock-chips.com>
-  */
- 
-+#include <linux/clk.h>
- #include <linux/clk-provider.h>
- #include <linux/io.h>
+--- a/sound/soc/rockchip/rockchip_i2s.c
++++ b/sound/soc/rockchip/rockchip_i2s.c
+@@ -12,6 +12,7 @@
+ #include <linux/delay.h>
  #include <linux/of.h>
-@@ -13,6 +14,7 @@
- #include "clk.h"
+ #include <linux/clk.h>
++#include <linux/clk-provider.h>
+ #include <linux/pinctrl/consumer.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/regmap.h>
+@@ -22,6 +23,7 @@
+ #include "rockchip_i2s.h"
  
- #define PX30_GRF_SOC_STATUS0		0x480
-+#define PX30_I2S1_FRAC_INPUT_MAX		600000000UL
+ #define DRV_NAME "rockchip-i2s"
++#define PX30_I2S1_FRAC_INPUT_MAX 600000000UL
  
- enum px30_plls {
- 	apll, dpll, cpll, npll, apll_b_h, apll_b_l,
-@@ -999,6 +1001,53 @@
- 	"pclk_usb_grf",
- };
+ struct rk_i2s_pins {
+ 	u32 reg_offset;
+@@ -741,6 +743,57 @@
+ 	return 0;
+ }
  
-+static void __init px30_v40_init_i2s1_clock(struct rockchip_clk_provider *ctx)
++static void rockchip_i2s_v40_put_clk(void *data)
 +{
-+	struct clk_hw *mux, *src;
-+	struct clk *i2s1;
-+	unsigned long rate;
-+	int ret;
-+
-+	if (!of_machine_is_compatible("v40-port,rk3326-handheld"))
-+		return;
-+
-+	i2s1 = rockchip_clk_get_lookup(ctx, SCLK_I2S1);
-+	if (IS_ERR_OR_NULL(i2s1))
-+		goto unavailable;
-+	mux = clk_hw_get_parent(__clk_get_hw(i2s1));
-+	if (!mux)
-+		goto unavailable;
-+	/* Index zero is the integer predivider, regardless of the active mux. */
-+	src = clk_hw_get_parent_by_index(mux, 0);
-+	if (!src || IS_ERR_OR_NULL(src->clk))
-+		goto unavailable;
-+
-+	/*
-+	 * PX30 TRM part 1, section 2.8.3 limits the fractional input to
-+	 * 600 MHz. The V40 uses a 1.2 GHz GPLL. Keep the I2S1 prescaler
-+	 * at 600 MHz, which also exceeds 20 times the highest RK817
-+	 * MCLK (96 kHz * 256). The PCM driver selects the fraction.
-+	 *
-+	 * Apply this before exposing the provider to consumers. An
-+	 * inherited unsafe divider can already give the expected
-+	 * nominal MCLK and would otherwise survive a same-rate request.
-+	 */
-+	ret = clk_set_rate_range(src->clk, PX30_I2S1_FRAC_INPUT_MAX,
-+				 PX30_I2S1_FRAC_INPUT_MAX);
-+	rate = clk_get_rate(src->clk);
-+	if (ret || rate != PX30_I2S1_FRAC_INPUT_MAX) {
-+		pr_warn("PX30 V40: I2S1 fractional input setup failed (%d, %lu Hz)\n",
-+			ret, rate);
-+		return;
-+	}
-+
-+	pr_info("PX30 V40: I2S1 fractional input set to %lu Hz\n", rate);
-+	return;
-+
-+unavailable:
-+	pr_warn("PX30 V40: I2S1 fractional input clock unavailable\n");
++	clk_put(data);
 +}
 +
- static void __init px30_clk_init(struct device_node *np)
++static int rockchip_i2s_v40_limit_frac_input(struct rk_i2s_dev *i2s)
++{
++	struct clk_hw *mux, *src;
++	struct clk *clk;
++	int ret;
++
++	if (!of_machine_is_compatible("v40-port,rk3326-handheld") ||
++	    !of_device_is_compatible(i2s->dev->of_node, "rockchip,px30-i2s") ||
++	    strcmp(__clk_get_name(i2s->mclk), "clk_i2s1"))
++		return 0;
++
++	mux = clk_hw_get_parent(__clk_get_hw(i2s->mclk));
++	src = mux ? clk_hw_get_parent_by_index(mux, 0) : NULL;
++	if (!src || strcmp(clk_hw_get_name(src), "clk_i2s1_src"))
++		return -EINVAL;
++
++	clk = clk_hw_get_clk(src, "i2s1-frac-src");
++	if (IS_ERR(clk))
++		return PTR_ERR(clk);
++
++	ret = devm_add_action_or_reset(i2s->dev, rockchip_i2s_v40_put_clk, clk);
++	if (ret)
++		return ret;
++
++	/*
++	 * The PX30 TRM limits the fractional divider input to 600 MHz.
++	 * On the V40 this is GPLL (1.2 GHz) divided by two, which also
++	 * leaves enough headroom for the 96 kHz RK817 MCLK.
++	 *
++	 * Wait until the CRU has protected its critical clocks: a rate
++	 * change may temporarily ungate the fractional clock's parents.
++	 * Set the range before ASoC programs MCLK so an inherited nominal
++	 * rate cannot cause the initial rate request to skip programming.
++	 */
++	ret = clk_set_rate_range(clk, PX30_I2S1_FRAC_INPUT_MAX,
++				 PX30_I2S1_FRAC_INPUT_MAX);
++	if (ret)
++		return ret;
++	if (clk_get_rate(clk) != PX30_I2S1_FRAC_INPUT_MAX)
++		return -ERANGE;
++
++	dev_info(i2s->dev, "V40 I2S1 fractional input set to %lu Hz\n",
++		 PX30_I2S1_FRAC_INPUT_MAX);
++	return 0;
++}
++
+ static int rockchip_i2s_probe(struct platform_device *pdev)
  {
- 	struct rockchip_clk_provider *ctx;
-@@ -1025,6 +1074,7 @@
- 				   PX30_GRF_SOC_STATUS0);
- 	rockchip_clk_register_branches(ctx, px30_clk_branches,
- 				       ARRAY_SIZE(px30_clk_branches));
-+	px30_v40_init_i2s1_clock(ctx);
+ 	struct device_node *node = pdev->dev.of_node;
+@@ -827,6 +880,11 @@
+ 	if (ret)
+ 		return ret;
  
- 	rockchip_clk_register_armclk(ctx, ARMCLK, "armclk",
- 				     mux_armclk_p, ARRAY_SIZE(mux_armclk_p),
++	ret = rockchip_i2s_v40_limit_frac_input(i2s);
++	if (ret)
++		return dev_err_probe(&pdev->dev, ret,
++				     "Failed to constrain V40 I2S1 clock\n");
++
+ 	ret = devm_snd_soc_register_component(&pdev->dev,
+ 					      &rockchip_i2s_component,
+ 					      dai, 1);

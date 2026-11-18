@@ -465,12 +465,12 @@
   },
   "clock_driver_correction": {
     "patch": "kernel/patches/0007-px30-v40-i2s1-fractional-input.patch",
-    "scope": "V40 I2S1 predivider before the provider is made available",
+    "scope": "V40 I2S1 platform probe after PX30 critical clock setup and before ASoC MCLK programming",
     "fractional_input_hz": 600000000,
     "kernel_release": "7.3.4-v40.1",
     "configuration_sha256": "beb6c89e00283fa170a601bf350fb4d84459fdc19e60e7dfbf617ae2ff665cfd",
-    "candidate_build_id": "cbbfbb465955ab79bbbc852a2c0709e3d4adb690",
-    "candidate_image_sha256": "2a2f417dffd1f5e681656560e196499d32b78b1efd256f8f63586b246b8e7dc1",
+    "candidate_build_id": "9b9fa24e4d8ee542980a34654afa47e9bde5bbd9",
+    "candidate_image_sha256": "5637d0bc66d6fadc50bd601c93c979b8e3d5bd700dc3fb3e4f86c72f53f4a5a7",
     "unchanged_symbol_exports": 17383,
     "retained_module_crc_validation": 871,
     "retained_module_import_crc_validation": 34885,
@@ -478,6 +478,13 @@
     "compiled_variant": "Matched running configuration with optional PL330 code and DAC mute guard, both diagnostic settings preserved",
     "selected_for_next_boot": true,
     "verified_running": false,
-    "audible_acceptance": null
+    "audible_acceptance": null,
+    "rejected_early_cru_build": {
+      "build_id": "cbbfbb465955ab79bbbc852a2c0709e3d4adb690",
+      "image_sha256": "2a2f417dffd1f5e681656560e196499d32b78b1efd256f8f63586b246b8e7dc1",
+      "reported_outcome": "Splash corruption followed by boot failure",
+      "new_persisted_boot_records": false
+    },
+    "card_readback_verified": true
   }
 }
