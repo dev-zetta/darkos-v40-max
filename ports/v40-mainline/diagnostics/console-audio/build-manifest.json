@@ -478,7 +478,16 @@
     "compiled_variant": "Matched running configuration with optional PL330 code and DAC mute guard, both diagnostic settings preserved",
     "selected_for_next_boot": true,
     "verified_running": true,
-    "audible_acceptance": null,
+    "audible_acceptance": "User confirmed the scrambling was gone in the running PPSSPP game",
+    "ppsspp_playback": {
+      "reported_rate_hz": 44100,
+      "mclk_hz": 11289600,
+      "samples": 7,
+      "elapsed_seconds": 18.574668,
+      "hardware_pointer_delta_frames": 819160,
+      "alsa_xruns_at_all_samples": 0,
+      "capture_sha256": "1445d4140ceda7b36383e1817e90da866bd0432deb90367b5d255371d240726f"
+    },
     "rejected_early_cru_build": {
       "build_id": "cbbfbb465955ab79bbbc852a2c0709e3d4adb690",
       "image_sha256": "2a2f417dffd1f5e681656560e196499d32b78b1efd256f8f63586b246b8e7dc1",
