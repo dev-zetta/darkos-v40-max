@@ -67,6 +67,15 @@ def change_profile(data):
     return data
 
 
+def change_hotkey(data):
+    pattern = rb'(?m)^(input_enable_hotkey_btn[ \t]*=[ \t]*")([^"\r\n]*)("[ \t]*\r?)$'
+    matches = list(re.finditer(pattern, data))
+    if len(matches) != 1 or matches[0][2] not in (b'12', b'16'):
+        raise ValueError('Expected the donor SELECT or V40 FN hotkey binding')
+    start, end = matches[0].span(2)
+    return data[:start] + b'16' + data[end:]
+
+
 def replace_file(path, data, *, owner=None, mode=None):
     if path.exists():
         original = path.stat()
@@ -104,8 +113,11 @@ def configure(root):
         subprocess.run(['sh', '-n'], input=wrapper, check=True)
         changes.append((launcher, wrapper, {'owner': (0, 0), 'mode': 0o755}))
 
-        profile = path_at(root, Path('home/ark/.config') / name / PROFILE)
+        home = Path('home/ark/.config') / name
+        profile = path_at(root, home / PROFILE)
         changes.append((profile, change_profile(donor(profile, DONOR_PROFILE)), {}))
+        config = path_at(root, home / 'retroarch.cfg')
+        changes.append((config, change_hotkey(config.read_bytes()), {}))
 
     installed_core = path_at(root, Path('home/ark/.config/retroarch32/cores') / PCSX)
     donor(installed_core, DONOR_PCSX)
