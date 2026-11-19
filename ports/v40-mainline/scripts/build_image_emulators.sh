@@ -62,6 +62,10 @@ build_retroarch() (
     export PKG_CONFIG_LIBDIR="/usr/lib/$triplet/pkgconfig:/usr/share/pkgconfig"
     export CFLAGS="-O2 -mcpu=cortex-a35 $1" CXXFLAGS="-O2 -mcpu=cortex-a35 $1"
     shift
+    if [[ "$name" == retroarch ]]; then
+        # The tested AArch64 build's toolchain had no Fontconfig development package.
+        export HAVE_FONTCONFIG=no
+    fi
     ./configure --host="$triplet" "${common[@]}" "$@" > "$work/$name-configure.log" 2>&1
     local feature
     for feature in KMS EGL OPENGLES OPENGLES3 UDEV ALSA ZLIB MENU; do
@@ -69,6 +73,7 @@ build_retroarch() (
     done
     if [[ "$name" == retroarch ]]; then
         grep -Fxq '#define HAVE_RGUI 1' config.h
+        grep -Fxq '/* #undef HAVE_FONTCONFIG */' config.h
     else
         grep -Fxq '#define HAVE_PLAIN_DRM 1' config.h
     fi
@@ -81,7 +86,7 @@ build_retroarch() (
 
 build_retroarch aarch64-linux-gnu retroarch '' --prefix=/usr \
     --enable-opengles3_2 --enable-rgui --enable-ozone --enable-xmb --enable-materialui \
-    --disable-odroidgo2 --disable-jack --disable-oss --disable-fontconfig
+    --disable-odroidgo2 --disable-jack --disable-oss
 build_retroarch arm-linux-gnueabihf retroarch32 '-mfpu=neon-fp-armv8 -mfloat-abi=hard' \
     --enable-plain_drm --enable-threads --disable-cheevos
 

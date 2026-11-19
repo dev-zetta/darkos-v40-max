@@ -6,7 +6,7 @@
 - Build and install the uinput add-on against the unchanged Linux 7.3.4-v40.1 module ABI, with access for the input group.
 - Use the private ARMHF Mesa route for the inherited Flycast r7 launchers for Dreamcast, Naomi and Atomiswave. Supply your own appropriate BIOS files.
 
-The three normal-launch castle replays on the development card measured 50.026–50.031 guest FPS, 699 displayed frames of 700 each, and a longest display gap of 49.45 ms. They passed the automated digital audio and control checks. The public image builds the emulator binaries from source and starts with an empty shader cache. A V40 Max cold boot of the exact r2 image and hardware qualification of its rebuilt emulator binaries remain pending. [Emulator evidence and scope](EMULATORS.md)
+The three normal-launch castle replays on the development card measured 50.026–50.031 guest FPS, 699 displayed frames of 700 each, and a longest display gap of 49.45 ms. They passed the automated digital audio and control checks. The public image builds the emulator binaries from source and starts with an empty shader cache. A V40 Max cold boot of the exact r2 image and hardware qualification of its rebuilt emulator binaries remain pending.
 
 ## Image revision 7.3.4-v40.1-r1
 

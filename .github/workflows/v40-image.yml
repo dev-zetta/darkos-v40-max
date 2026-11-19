@@ -267,6 +267,8 @@ jobs:
           {
             printf 'V40 Max 720×720 SD-card image. See the [installation and validation guide](%s/%s/blob/%s/ports/v40-mainline/IMAGE.md).\n\n' \
               "$GITHUB_SERVER_URL" "$GH_REPO" "$GITHUB_SHA"
+            printf 'See the [emulator notes](%s/%s/blob/%s/ports/v40-mainline/EMULATORS.md) for replay coverage and build details.\n\n' \
+              "$GITHUB_SERVER_URL" "$GH_REPO" "$GITHUB_SHA"
             printf 'The numbered image parts, if present, are joined in order before decompression. Verify both sets of checksums. Use a spare card of at least 16 GB.\n\n'
             cat CHANGELOG.md
           } > "$notes"
