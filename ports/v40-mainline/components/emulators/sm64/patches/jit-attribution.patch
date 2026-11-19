@@ -1,0 +1,111 @@
+--- a/mupen64plus-core/src/r4300/new_dynarec/new_dynarec.c
++++ b/mupen64plus-core/src/r4300/new_dynarec/new_dynarec.c
+@@ -273,6 +273,45 @@
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
++
++#ifdef V40_TRACE_DYNAREC
++#include <time.h>
++
++extern unsigned sm64_hitch_active_frame(void) __attribute__((weak));
++
++struct v40_jit_timing
++{
++  unsigned frame, block_count, slowest_pc;
++  uint64_t wall_ns, cpu_ns, max_ns;
++};
++
++static struct v40_jit_timing v40_jit_rows[200];
++static _Thread_local int v40_jit_profiling;
++
++static uint64_t v40_jit_now(clockid_t clock_id)
++{
++  struct timespec now;
++  if (clock_gettime(clock_id, &now))
++    return 0;
++  return (uint64_t)now.tv_sec * 1000000000u + now.tv_nsec;
++}
++
++static void v40_jit_dump(void)
++{
++  unsigned i;
++  for (i = 0; i < sizeof(v40_jit_rows) / sizeof(*v40_jit_rows); ++i)
++  {
++    struct v40_jit_timing *row = &v40_jit_rows[i];
++    if (row->block_count)
++      fprintf(stderr, "V40_JIT frame=%u blocks=%u wall_ns=%llu cpu_ns=%llu max_ns=%llu slowest_pc=%08x\n",
++              row->frame, row->block_count,
++              (unsigned long long)row->wall_ns, (unsigned long long)row->cpu_ns,
++              (unsigned long long)row->max_ns, row->slowest_pc);
++  }
++  memset(v40_jit_rows, 0, sizeof(v40_jit_rows));
++}
++#endif
++
+ int new_recompile_block(int addr);
+ void *get_addr_ht(u_int vaddr);
+ void *get_addr(u_int vaddr);
+@@ -7767,6 +7806,9 @@
+ void new_dynarec_cleanup(void)
+ {
+   int n;
++#ifdef V40_TRACE_DYNAREC
++  v40_jit_dump();
++#endif
+ #ifndef VITA
+ #if defined(_MSC_VER)
+   VirtualFree(base_addr, 0, MEM_RELEASE);
+@@ -7842,7 +7884,52 @@
+   end_tcache_write(start, out);
+ }
+ 
++#ifdef V40_TRACE_DYNAREC
++static __attribute__((noinline)) int v40_recompile_block(int addr);
++
+ int new_recompile_block(int addr)
++{
++  unsigned frame = sm64_hitch_active_frame ? sm64_hitch_active_frame() : 0;
++  struct v40_jit_timing *row;
++  uint64_t wall_before, cpu_before, wall_after, cpu_after, wall;
++  int result;
++
++  /* Count the outermost call so a nested compile is included only once. */
++  if (!frame || v40_jit_profiling)
++    return v40_recompile_block(addr);
++
++  v40_jit_profiling = 1;
++  wall_before = v40_jit_now(CLOCK_MONOTONIC);
++  cpu_before = v40_jit_now(CLOCK_THREAD_CPUTIME_ID);
++  result = v40_recompile_block(addr);
++  cpu_after = v40_jit_now(CLOCK_THREAD_CPUTIME_ID);
++  wall_after = v40_jit_now(CLOCK_MONOTONIC);
++  v40_jit_profiling = 0;
++  if (!wall_before || !cpu_before || wall_after < wall_before || cpu_after < cpu_before)
++    return result;
++
++  wall = wall_after - wall_before;
++  row = &v40_jit_rows[frame % (sizeof(v40_jit_rows) / sizeof(*v40_jit_rows))];
++  if (row->frame != frame)
++  {
++    memset(row, 0, sizeof(*row));
++    row->frame = frame;
++  }
++  row->block_count++;
++  row->wall_ns += wall;
++  row->cpu_ns += cpu_after - cpu_before;
++  if (wall > row->max_ns)
++  {
++    row->max_ns = wall;
++    row->slowest_pc = (unsigned)addr;
++  }
++  return result;
++}
++
++static int v40_recompile_block(int addr)
++#else
++int new_recompile_block(int addr)
++#endif
+ {
+ /*
+   if(addr==0x800cd050) {

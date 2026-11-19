@@ -1,0 +1,71 @@
+--- a/mupen64plus-core/src/r4300/new_dynarec/new_dynarec.c
++++ b/mupen64plus-core/src/r4300/new_dynarec/new_dynarec.c
+@@ -281,8 +281,8 @@
+ 
+ struct v40_jit_timing
+ {
+-  unsigned frame, block_count, slowest_pc;
+-  uint64_t wall_ns, cpu_ns, max_ns;
++  unsigned frame, block_count, slowest_pc, slowest_ops, longest_ops;
++  uint64_t wall_ns, cpu_ns, max_ns, total_ops;
+ };
+ 
+ static struct v40_jit_timing v40_jit_rows[200];
+@@ -303,10 +303,11 @@
+   {
+     struct v40_jit_timing *row = &v40_jit_rows[i];
+     if (row->block_count)
+-      fprintf(stderr, "V40_JIT frame=%u blocks=%u wall_ns=%llu cpu_ns=%llu max_ns=%llu slowest_pc=%08x\n",
++      fprintf(stderr, "V40_JIT frame=%u blocks=%u wall_ns=%llu cpu_ns=%llu max_ns=%llu slowest_pc=%08x slowest_ops=%u longest_ops=%u total_ops=%llu\n",
+               row->frame, row->block_count,
+               (unsigned long long)row->wall_ns, (unsigned long long)row->cpu_ns,
+-              (unsigned long long)row->max_ns, row->slowest_pc);
++              (unsigned long long)row->max_ns, row->slowest_pc, row->slowest_ops,
++              row->longest_ops, (unsigned long long)row->total_ops);
+   }
+   memset(v40_jit_rows, 0, sizeof(v40_jit_rows));
+ }
+@@ -7754,6 +7755,16 @@
+   invc_ptr=invalid_code;
+ #endif
+   stop_after_jal=0;
++#ifdef V40_TRACE_DYNAREC
++  {
++    const char *enabled = getenv("V40_N64_STOP_AFTER_JAL");
++    if (enabled && strcmp(enabled, "1") == 0)
++    {
++      stop_after_jal = 1;
++      fprintf(stderr, "V40_JIT stop_after_jal=1\n");
++    }
++  }
++#endif
+   // TLB
+   using_tlb=0;
+   for(n=0;n<524288;n++) // 0 .. 0x7FFFFFFF
+@@ -7890,6 +7901,7 @@
+ int new_recompile_block(int addr)
+ {
+   unsigned frame = sm64_hitch_active_frame ? sm64_hitch_active_frame() : 0;
++  unsigned ops;
+   struct v40_jit_timing *row;
+   uint64_t wall_before, cpu_before, wall_after, cpu_after, wall;
+   int result;
+@@ -7915,13 +7927,18 @@
+     memset(row, 0, sizeof(*row));
+     row->frame = frame;
+   }
++  ops = !result && slen > 0 ? (unsigned)slen : 0;
+   row->block_count++;
+   row->wall_ns += wall;
+   row->cpu_ns += cpu_after - cpu_before;
++  row->total_ops += ops;
++  if (ops > row->longest_ops)
++    row->longest_ops = ops;
+   if (wall > row->max_ns)
+   {
+     row->max_ns = wall;
+     row->slowest_pc = (unsigned)addr;
++    row->slowest_ops = ops;
+   }
+   return result;
+ }

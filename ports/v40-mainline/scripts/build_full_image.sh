@@ -114,7 +114,7 @@ python3 "$port/scripts/prepare_image_rootfs.py" --rootfs "$work/mount-root" --do
 
 notices="$work/mount-root/usr/share/doc/arkos4clone-v40"
 install -D -m 0644 "$port/image-inputs.json" "$notices/image-inputs.json"
-install -m 0644 "$port/IMAGE.md" "$port/UPSTREAM.md" "$notices/"
+install -m 0644 "$port/IMAGE.md" "$port/UPSTREAM.md" "$port/EMULATORS.md" "$notices/"
 install -m 0644 "$work/realtek/usr/share/doc/linux-firmware-realtek/copyright" "$notices/realtek-firmware.copyright"
 install -m 0644 "$work/busybox/usr/share/doc/busybox-static/copyright" "$notices/busybox-static.copyright"
 sync -f "$work/mount-root"

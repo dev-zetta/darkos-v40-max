@@ -1,0 +1,9 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+export LD_LIBRARY_PATH=/opt/retroarch/v40-mainline/mesa-armhf
+export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
+sm64_route=/opt/retroarch/v40-mainline/sm64/route.sh
+if [ -r "$sm64_route" ]; then
+    . "$sm64_route"
+fi
+exec /opt/retroarch/v40-mainline/bin/retroarch32 "$@"

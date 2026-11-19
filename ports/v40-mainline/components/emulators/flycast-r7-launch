@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
+set -eu
+mesa=/opt/retroarch/v40-mainline/mesa-armhf
+vendor=/usr/share/glvnd/egl_vendor.d/50_mesa.json
+flycast=/opt/flycastsa/flycast-r7
+if [ ! -r "$mesa/libEGL.so.1" ] || [ ! -r "$mesa/libGLESv2.so.2" ] ||
+   [ ! -r "$mesa/libgbm.so.1" ] || [ ! -r "$vendor" ] || [ ! -x "$flycast" ]; then
+    printf '%s\n' 'Flycast r7 needs the installed V40 ARMHF Mesa graphics profile.' >&2
+    exit 126
+fi
+export LD_LIBRARY_PATH="$mesa"':/usr/local/lib/v40-mainline/$LIB'
+export __EGL_VENDOR_LIBRARY_FILENAMES="$vendor"
+exec "$flycast" "$@"

@@ -1,0 +1,850 @@
+diff --git a/Common/GPU/Vulkan/VulkanContext.cpp b/Common/GPU/Vulkan/VulkanContext.cpp
+index 9b384731eb06a9e2e7104196957bd7dbdc31e3be..bedb8540d43e40c595ae41dff0d4b30beb74bbdd 100644
+--- a/Common/GPU/Vulkan/VulkanContext.cpp
++++ b/Common/GPU/Vulkan/VulkanContext.cpp
+@@ -1,5 +1,6 @@
+ #define __STDC_LIMIT_MACROS
+ 
++#include <algorithm>
+ #include <cstdlib>
+ #include <cstdint>
+ #include <cstring>
+@@ -159,8 +160,18 @@ VkResult VulkanContext::CreateInstance(const CreateInfo &info) {
+ 	}
+ #endif
+ #if defined(VK_USE_PLATFORM_DISPLAY_KHR)
+-	if (IsInstanceExtensionAvailable(VK_KHR_DISPLAY_EXTENSION_NAME)) {
++	const bool displayAvailable = IsInstanceExtensionAvailable(VK_KHR_DISPLAY_EXTENSION_NAME);
++	if (displayAvailable)
+ 		instance_extensions_enabled_.push_back(VK_KHR_DISPLAY_EXTENSION_NAME);
++	if (info.acquireDrmDisplay) {
++		if (!displayAvailable ||
++		    !IsInstanceExtensionAvailable(VK_EXT_DIRECT_MODE_DISPLAY_EXTENSION_NAME) ||
++		    !IsInstanceExtensionAvailable(VK_EXT_ACQUIRE_DRM_DISPLAY_EXTENSION_NAME)) {
++			init_error_ = "The Vulkan ICD does not support acquiring DRM displays";
++			return VK_ERROR_EXTENSION_NOT_PRESENT;
++		}
++		instance_extensions_enabled_.push_back(VK_EXT_DIRECT_MODE_DISPLAY_EXTENSION_NAME);
++		instance_extensions_enabled_.push_back(VK_EXT_ACQUIRE_DRM_DISPLAY_EXTENSION_NAME);
+ 	}
+ #endif
+ #if defined(VK_USE_PLATFORM_METAL_EXT)
+@@ -363,8 +374,9 @@ void VulkanContext::UpdateInflightFrames(int n) {
+ }
+ 
+ void VulkanContext::WaitUntilQueueIdle() {
+-	// Should almost never be used
+-	vkQueueWaitIdle(gfx_queue_);
++	// An SDL display startup failure can tear down the device before ChooseQueue.
++	if (gfx_queue_ != VK_NULL_HANDLE)
++		vkQueueWaitIdle(gfx_queue_);
+ }
+ 
+ bool VulkanContext::MemoryTypeFromProperties(uint32_t typeBits, VkFlags requirements_mask, uint32_t *typeIndex) {
+@@ -808,24 +820,27 @@ VkResult VulkanContext::CreateDevice(int physical_device) {
+ 
+ 	VkResult res = vkCreateDevice(physical_devices_[physical_device_], &device_info, nullptr, &device_);
+ 	if (res != VK_SUCCESS) {
++		device_ = VK_NULL_HANDLE;
+ 		init_error_ = "Unable to create Vulkan device";
+ 		ERROR_LOG(Log::G3D, "%s", init_error_.c_str());
+-	} else {
+-		VulkanLoadDeviceFunctions(device_, extensionsLookup_, vulkanDeviceApiVersion_);
++		return res;
+ 	}
+-	INFO_LOG(Log::G3D, "Vulkan Device created: %s", physicalDeviceProperties_[physical_device_].properties.deviceName);
+-
+-	// Since we successfully created a device (however we got here, might be interesting in debug), we force the choice to be visible in the menu.
+-	VulkanSetAvailable(true);
++	VulkanLoadDeviceFunctions(device_, extensionsLookup_, vulkanDeviceApiVersion_);
+ 
+ 	VmaAllocatorCreateInfo allocatorInfo = {};
+ 	allocatorInfo.vulkanApiVersion = std::min(vulkanDeviceApiVersion_, vulkanInstanceApiVersion_);
+ 	allocatorInfo.physicalDevice = physical_devices_[physical_device_];
+ 	allocatorInfo.device = device_;
+ 	allocatorInfo.instance = instance_;
+-	VkResult result = vmaCreateAllocator(&allocatorInfo, &allocator_);
+-	_assert_(result == VK_SUCCESS);
+-	_assert_(allocator_ != VK_NULL_HANDLE);
++	const VkResult result = vmaCreateAllocator(&allocatorInfo, &allocator_);
++	if (result != VK_SUCCESS) {
++		init_error_ = "Unable to create Vulkan memory allocator";
++		vkDestroyDevice(device_, nullptr);
++		device_ = VK_NULL_HANDLE;
++		return result;
++	}
++	INFO_LOG(Log::G3D, "Vulkan Device created: %s", physicalDeviceProperties_[physical_device_].properties.deviceName);
++	VulkanSetAvailable(true);
+ 
+ 	// Examine the physical device to figure out super rough performance grade.
+ 	// Basically all we want to do is to identify low performance mobile devices
+@@ -1021,185 +1036,99 @@ VkResult VulkanContext::ReinitSurface() {
+ 	{
+ 		VkDisplaySurfaceCreateInfoKHR display{ VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR };
+ #if !defined(__LIBRETRO__)
+-		/*
+-		And when not to use libretro need VkDisplaySurfaceCreateInfoKHR this extension,
+-		then you need to use dlopen to read vulkan loader in VulkanLoader.cpp.
+-		huangzihan China
+-		*/
+-
+-		if(!vkGetPhysicalDeviceDisplayPropertiesKHR || 
+-		   !vkGetPhysicalDeviceDisplayPlanePropertiesKHR || 
+-		   !vkGetDisplayModePropertiesKHR || 
+-		   !vkGetDisplayPlaneSupportedDisplaysKHR || 
+-		   !vkGetDisplayPlaneCapabilitiesKHR ) {
+-			_assert_msg_(false, "DISPLAY Vulkan cannot find any vulkan function symbols.");
++		if (!vkGetPhysicalDeviceDisplayPropertiesKHR || !vkGetPhysicalDeviceDisplayPlanePropertiesKHR ||
++		    !vkGetDisplayModePropertiesKHR || !vkGetDisplayPlaneSupportedDisplaysKHR ||
++		    !vkGetDisplayPlaneCapabilitiesKHR || !vkCreateDisplayPlaneSurfaceKHR) {
++			init_error_ = "Missing VK_KHR_display functions";
+ 			return VK_ERROR_INITIALIZATION_FAILED;
+ 		}
+ 
+-		//The following code is for reference:
+-		// https://github.com/vanfanel/ppsspp
+-		// When using the VK_KHR_display extension and not using LIBRETRO, a complete
+-		// VkDisplaySurfaceCreateInfoKHR is needed.
+-
+-		uint32_t display_count;
+-		uint32_t plane_count;
+-
+-		VkDisplayPropertiesKHR *display_props = NULL;
+-		VkDisplayPlanePropertiesKHR *plane_props = NULL;
+-		VkDisplayModePropertiesKHR* mode_props = NULL;
+-
+-		VkExtent2D image_size;
+-		// This is the chosen physical_device, it has been chosen elsewhere.
+-		VkPhysicalDevice phys_device = physical_devices_[physical_device_];
+-		VkDisplayModeKHR display_mode = VK_NULL_HANDLE;
+-		VkDisplayPlaneAlphaFlagBitsKHR alpha_mode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
+-		uint32_t plane = UINT32_MAX;
+-
+-		// For now, use the first available (connected) display.
+-		int display_index = 0;
+-
+-		VkResult result;
+-		bool ret = false;
+-		bool mode_found = false;
+-
+-		int i, j;
+-
+-		// 1 physical device can have N displays connected.
+-		// Vulkan only counts the connected displays.
+-
+-		// Get a list of displays on the physical device.
+-		display_count = 0;
+-		vkGetPhysicalDeviceDisplayPropertiesKHR(phys_device, &display_count, NULL);
+-		if (display_count == 0) {
+-			_assert_msg_(false, "DISPLAY Vulkan couldn't find any displays.");
+-			return VK_ERROR_INITIALIZATION_FAILED;
++		const VkPhysicalDevice physicalDevice = GetCurrentPhysicalDevice();
++		// Direct DRM acquisition supplies a specific display. Other KHR_display callers use the first display.
++		VkDisplayKHR selectedDisplay = winsysData1_ ? *static_cast<const VkDisplayKHR *>(winsysData1_) : VK_NULL_HANDLE;
++		if (selectedDisplay == VK_NULL_HANDLE) {
++			uint32_t displayCount = 0;
++			if (vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, nullptr) != VK_SUCCESS ||
++			    displayCount == 0) {
++				init_error_ = "Vulkan could not find any displays";
++				return VK_ERROR_INITIALIZATION_FAILED;
++			}
++			std::vector<VkDisplayPropertiesKHR> displays(displayCount);
++			if (vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displays.data()) != VK_SUCCESS ||
++			    displayCount == 0) {
++				init_error_ = "Vulkan could not read display properties";
++				return VK_ERROR_INITIALIZATION_FAILED;
++			}
++			selectedDisplay = displays.front().display;
+ 		}
+-		display_props = new VkDisplayPropertiesKHR[display_count];
+-		vkGetPhysicalDeviceDisplayPropertiesKHR(phys_device, &display_count, display_props);
+-
+-		// Get a list of display planes on the physical device.
+-		plane_count = 0;
+-		vkGetPhysicalDeviceDisplayPlanePropertiesKHR(phys_device, &plane_count, NULL);
+-		if (plane_count == 0) {
+-			_assert_msg_(false, "DISPLAY Vulkan couldn't find any planes on the physical device");
+-			return VK_ERROR_INITIALIZATION_FAILED;
+ 
++		uint32_t modeCount = 0;
++		if (vkGetDisplayModePropertiesKHR(physicalDevice, selectedDisplay, &modeCount, nullptr) != VK_SUCCESS || modeCount == 0) {
++			init_error_ = "The Vulkan display lists no video modes";
++			return VK_ERROR_INITIALIZATION_FAILED;
+ 		}
+-		plane_props = new VkDisplayPlanePropertiesKHR[plane_count];
+-		vkGetPhysicalDeviceDisplayPlanePropertiesKHR(phys_device, &plane_count, plane_props);
+-
+-		// Get the Vulkan display we are going to use.	
+-		VkDisplayKHR myDisplay = display_props[display_index].display;
+-
+-		// Get the list of display modes of the display
+-		uint32_t mode_count = 0;
+-		vkGetDisplayModePropertiesKHR(phys_device, myDisplay, &mode_count, NULL);
+-		if (mode_count == 0) {
+-			_assert_msg_(false, "DISPLAY Vulkan couldn't find any video modes on the display");
++		std::vector<VkDisplayModePropertiesKHR> modes(modeCount);
++		if (vkGetDisplayModePropertiesKHR(physicalDevice, selectedDisplay, &modeCount, modes.data()) != VK_SUCCESS) {
++			init_error_ = "Vulkan could not read display modes";
+ 			return VK_ERROR_INITIALIZATION_FAILED;
+ 		}
+-		mode_props = new VkDisplayModePropertiesKHR[mode_count];
+-		vkGetDisplayModePropertiesKHR(phys_device, myDisplay, &mode_count, mode_props);
+ 
+-		// See if there's an appropiate mode available on the display 
+-		display_mode = VK_NULL_HANDLE;
+-		for (i = 0; i < mode_count; ++i)
+-		{
+-			const VkDisplayModePropertiesKHR* mode = &mode_props[i];
+-
+-			if (mode->parameters.visibleRegion.width == g_display.pixel_xres &&
+-			    mode->parameters.visibleRegion.height == g_display.pixel_yres)
+-			{
+-				display_mode = mode->displayMode;
+-				mode_found = true;
++		const VkExtent2D extent{static_cast<uint32_t>(g_display.pixel_xres), static_cast<uint32_t>(g_display.pixel_yres)};
++		for (size_t i = 0; i < modeCount; ++i) {
++			const auto &mode = modes[i];
++			if (mode.parameters.visibleRegion.width == extent.width && mode.parameters.visibleRegion.height == extent.height) {
++				display.displayMode = mode.displayMode;
+ 				break;
+ 			}
+ 		}
+-
+-		// Free the mode list now.
+-		delete [] mode_props;
+-
+-		// If there are no useable modes found on the display, error out
+-		if (display_mode == VK_NULL_HANDLE)
+-		{
+-			_assert_msg_(false, "DISPLAY Vulkan couldn't find any video modes on the display");
++		if (display.displayMode == VK_NULL_HANDLE) {
++			init_error_ = "The Vulkan display has no video mode matching SDL's drawable size";
+ 			return VK_ERROR_INITIALIZATION_FAILED;
+ 		}
+ 
+-		/* Iterate on the list of planes of the physical device
+-		   to find a plane that matches these criteria:
+-		   -It must be compatible with the chosen display + mode.
+-		   -It isn't currently bound to another display.
+-		   -It supports per-pixel alpha, if possible. */
+-		for (i = 0; i < plane_count; i++) {
+-			uint32_t supported_displays_count = 0;
+-			VkDisplayKHR* supported_displays;
+-			VkDisplayPlaneCapabilitiesKHR plane_caps;
+-
+-			/* See if the plane is compatible with the current display. */
+-			vkGetDisplayPlaneSupportedDisplaysKHR(phys_device, i, &supported_displays_count, NULL);
+-			if (supported_displays_count == 0) {
+-				/* This plane doesn't support any displays. Continue to the next plane. */
++		uint32_t planeCount = 0;
++		if (vkGetPhysicalDeviceDisplayPlanePropertiesKHR(physicalDevice, &planeCount, nullptr) != VK_SUCCESS) {
++			init_error_ = "Vulkan could not enumerate display planes";
++			return VK_ERROR_INITIALIZATION_FAILED;
++		}
++		std::vector<VkDisplayPlanePropertiesKHR> planes(planeCount);
++		if (planeCount > 0 && vkGetPhysicalDeviceDisplayPlanePropertiesKHR(physicalDevice, &planeCount, planes.data()) != VK_SUCCESS) {
++			init_error_ = "Vulkan could not read display planes";
++			return VK_ERROR_INITIALIZATION_FAILED;
++		}
++		display.planeIndex = UINT32_MAX;
++		display.alphaMode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
++		for (uint32_t i = 0; i < planeCount; ++i) {
++			if (planes[i].currentDisplay && planes[i].currentDisplay != selectedDisplay)
+ 				continue;
+-			}
+-
+-			/* Get the list of displays supported by this plane. */
+-			supported_displays = new VkDisplayKHR[supported_displays_count];
+-			vkGetDisplayPlaneSupportedDisplaysKHR(phys_device, i,
+-			    &supported_displays_count, supported_displays);
+ 
+-			/* The plane must be bound to the chosen display, or not in use.
+-			   If none of these is true, iterate to another plane. */
+-			if ( !( (plane_props[i].currentDisplay == myDisplay) ||
+-			        (plane_props[i].currentDisplay == VK_NULL_HANDLE))) 
++			uint32_t displayCount = 0;
++			if (vkGetDisplayPlaneSupportedDisplaysKHR(physicalDevice, i, &displayCount, nullptr) != VK_SUCCESS ||
++			    displayCount == 0)
+ 				continue;
+ 
+-			/* Iterate the list of displays supported by this plane
+-			   in order to find out if the chosen display is among them. */
+-			bool plane_supports_display = false;
+-			for (j = 0; j < supported_displays_count; j++) {
+-				if (supported_displays[j] == myDisplay) {
+-					plane_supports_display = true;
+-					break;
+-				}
+-			}
+-
+-			/* Free the list of displays supported by this plane. */
+-			delete [] supported_displays;
+-
+-			/* If the display is not supported by this plane, iterate to the next plane. */
+-			if (!plane_supports_display)
++			std::vector<VkDisplayKHR> supported(displayCount);
++			if (vkGetDisplayPlaneSupportedDisplaysKHR(physicalDevice, i, &displayCount, supported.data()) != VK_SUCCESS)
++				continue;
++			if (std::find(supported.begin(), supported.begin() + displayCount, selectedDisplay) == supported.begin() + displayCount)
+ 				continue;
+ 
+-			/* Want a plane that supports the alpha mode we have chosen. */
+-			vkGetDisplayPlaneCapabilitiesKHR(phys_device, display_mode, i, &plane_caps);
+-			if (plane_caps.supportedAlpha & alpha_mode) {
+-				/* Yep, this plane is alright. */
+-				plane = i;
++			VkDisplayPlaneCapabilitiesKHR capabilities{};
++			if (vkGetDisplayPlaneCapabilitiesKHR(physicalDevice, display.displayMode, i, &capabilities) == VK_SUCCESS &&
++			    (capabilities.supportedAlpha & display.alphaMode)) {
++				display.planeIndex = i;
++				display.planeStackIndex = planes[i].currentStackIndex;
+ 				break;
+ 			}
+ 		}
+-
+-		/* If we couldn't find an appropiate plane, error out. */
+-		if (plane == UINT32_MAX) {
+-			_assert_msg_(false, "DISPLAY Vulkan couldn't find an appropiate plane");
++		if (display.planeIndex == UINT32_MAX) {
++			init_error_ = "The Vulkan display has no suitable plane";
+ 			return VK_ERROR_INITIALIZATION_FAILED;
+ 		}
+-	
+-		// Finally, create the vulkan surface.
+-		image_size.width = g_display.pixel_xres;
+-		image_size.height = g_display.pixel_yres;
+ 
+-		display.displayMode = display_mode;
+-		display.imageExtent = image_size;
++		display.imageExtent = extent;
+ 		display.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+-		display.alphaMode = alpha_mode;
+ 		display.globalAlpha = 1.0f;
+-		display.planeIndex = plane;
+-		display.planeStackIndex = plane_props[plane].currentStackIndex;
+-		display.pNext = nullptr;
+-		delete [] display_props;
+-		delete [] plane_props;
+ #endif
+ 		display.flags = 0;
+ 		retval = vkCreateDisplayPlaneSurfaceKHR(instance_, &display, nullptr, &surface_);
+diff --git a/Common/GPU/Vulkan/VulkanContext.h b/Common/GPU/Vulkan/VulkanContext.h
+index 617d231de51ba0fe71f011f8e2fc319ec11a7e32..27d5a17c72b50f23c09e4a60c38b70d47c6c5a37 100644
+--- a/Common/GPU/Vulkan/VulkanContext.h
++++ b/Common/GPU/Vulkan/VulkanContext.h
+@@ -182,6 +182,7 @@ class VulkanContext {
+ 		int app_ver;
+ 		VulkanInitFlags flags;
+ 		std::string customDriver;
++		bool acquireDrmDisplay = false;
+ 	};
+ 
+ 	VkResult CreateInstance(const CreateInfo &info);
+diff --git a/Core/Instance.cpp b/Core/Instance.cpp
+index fcb350f82e275215b55f9e6a2c8af96f7892c535..4004355f5435047f4953fdd94d426e94beadc405 100644
+--- a/Core/Instance.cpp
++++ b/Core/Instance.cpp
+@@ -35,8 +35,91 @@
+ 
+ #include <cstdint>
+ 
++#if PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID) && !defined(__LIBRETRO__)
++#include <cerrno>
++#include <cstdio>
++#include <limits>
++#endif
++
+ uint8_t PPSSPP_ID = 0;
+ 
++#if PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID) && !defined(__LIBRETRO__)
++
++static int instanceLockFile = -1;
++static constexpr int kMaxInstanceId = std::numeric_limits<uint8_t>::max();
++
++static struct flock InstanceSlot(int id) {
++	struct flock lock{};
++	lock.l_type = F_WRLCK;
++	lock.l_whence = SEEK_SET;
++	lock.l_start = id;
++	lock.l_len = 1;
++	return lock;
++}
++
++int GetInstancePeerCount() {
++	if (instanceLockFile < 0) {
++		return 0;
++	}
++
++	// F_GETLK reports conflicting locks held by other processes.
++	int count = 1;
++	for (int id = 1; id <= kMaxInstanceId; ++id) {
++		if (id == PPSSPP_ID) {
++			continue;
++		}
++		struct flock lock = InstanceSlot(id);
++		if (fcntl(instanceLockFile, F_GETLK, &lock) == 0 && lock.l_type != F_UNLCK) {
++			++count;
++		}
++	}
++	return count;
++}
++
++void InitInstanceCounter() {
++	// Legacy builds write counters and unlink their shared object. Keep their
++	// object separate. Retain this inode so every opener sees the same locks.
++	char name[64];
++	std::snprintf(name, sizeof(name), "/PPSSPP_ID_LOCKS_V1_%lu", static_cast<unsigned long>(geteuid()));
++	instanceLockFile = shm_open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
++	if (instanceLockFile < 0) {
++		WARN_LOG(Log::sceNet, "Could not open PPSSPP instance lock file (errno %d).", errno);
++		PPSSPP_ID = 1;
++		return;
++	}
++
++	// The kernel releases the slot when its process exits, even on a crash.
++	// Locks may cover bytes beyond EOF, so the object itself holds no state.
++	for (int id = 1; id <= kMaxInstanceId; ++id) {
++		struct flock lock = InstanceSlot(id);
++		if (fcntl(instanceLockFile, F_SETLK, &lock) == 0) {
++			PPSSPP_ID = static_cast<uint8_t>(id);
++			return;
++		}
++		if (errno != EACCES && errno != EAGAIN) {
++			WARN_LOG(Log::sceNet, "Could not claim PPSSPP instance lock (errno %d).", errno);
++			ShutdownInstanceCounter();
++			PPSSPP_ID = 1;
++			return;
++		}
++	}
++
++	// IDs are stored in one byte. Keep primary-only audio and writes disabled
++	// if no unique ID remains.
++	WARN_LOG(Log::sceNet, "All PPSSPP instance IDs are in use.");
++	ShutdownInstanceCounter();
++	PPSSPP_ID = static_cast<uint8_t>(kMaxInstanceId);
++}
++
++void ShutdownInstanceCounter() {
++	if (instanceLockFile >= 0) {
++		close(instanceLockFile);
++		instanceLockFile = -1;
++	}
++}
++
++#else
++
+ #if PPSSPP_PLATFORM(WINDOWS)
+ static HANDLE hIDMapFile = nullptr;
+ static HANDLE mapLock = nullptr;
+@@ -189,3 +272,5 @@ void ShutdownInstanceCounter() {
+ 	}
+ #endif
+ }
++
++#endif
+diff --git a/SDL/README.kmsdrm-panvk.md b/SDL/README.kmsdrm-panvk.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..9be06b1064fd1fc90eebe8b51e9cf4e3f5baf2a9
+--- /dev/null
++++ b/SDL/README.kmsdrm-panvk.md
+@@ -0,0 +1,7 @@
++# Direct KMS with Mesa PanVK
++
++Build SDL PPSSPP with `-DUSE_VULKAN_DISPLAY_KHR=ON`. To run with Mesa PanVK on a Linux console, select the Vulkan graphics backend and launch the emulator with `SDL_VIDEODRIVER=KMSDRM` and `PPSSPP_KMSDRM_PANVK=1`. Use `VK_DRIVER_FILES` to select the intended Mesa PanVK ICD. The ICD must provide `VK_KHR_display`, `VK_EXT_direct_mode_display` and `VK_EXT_acquire_drm_display`.
++
++PPSSPP uses the DRM card selected by SDL. If several connectors are connected, set `PPSSPP_KMSDRM_CONNECTOR` to the connector name under `/sys/class/drm` without the `cardN-` prefix. The launcher must release its display before starting PPSSPP. Opt-in Vulkan availability, display acquisition, or swapchain initialization failure returns status `69` before PPSSPP starts the emulation thread. A launcher can wait for PPSSPP to exit and then run a fresh GLES process with the PanVK environment removed. Other application failures, signals, and exits retain their usual status. Launchers must never retry with GLES after a Vulkan game session has started. The environment setting leaves ordinary PPSSPP launches unchanged.
++
++Bifrost support may be experimental in Mesa. Use the PanVK build and environment recommended by the distributor for the hardware in use. A DRM connector and an advertised Vulkan device establish graphics availability. Actual game speed, rendering correctness and audio should be checked on the target hardware.
+diff --git a/SDL/SDLKMSDRMConnector.h b/SDL/SDLKMSDRMConnector.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..7fb53ce9df42d4bbcd8c4eae88a4043ed8d240a7
+--- /dev/null
++++ b/SDL/SDLKMSDRMConnector.h
+@@ -0,0 +1,51 @@
++#pragma once
++
++#include <charconv>
++#include <cstdint>
++#include <filesystem>
++#include <fstream>
++#include <optional>
++#include <string>
++#include <string_view>
++
++inline std::optional<uint32_t> FindSDLKMSDRMConnector(const std::filesystem::path &sysfs, std::string_view card,
++	std::string_view requested, std::string *error) {
++	const std::string prefix = std::string(card) + "-";
++	std::error_code ec;
++	std::optional<uint32_t> selected;
++	for (std::filesystem::directory_iterator it(sysfs, ec), end; !ec && it != end; it.increment(ec)) {
++		const std::string name = it->path().filename().string();
++		if (name.compare(0, prefix.size(), prefix) != 0 ||
++		    (!requested.empty() && std::string_view(name).substr(prefix.size()) != requested)) {
++			continue;
++		}
++
++		std::string status;
++		std::ifstream(it->path() / "status") >> status;
++		if (status != "connected")
++			continue;
++
++		std::string objectId;
++		std::ifstream(it->path() / "connector_id") >> objectId;
++		uint32_t id = 0;
++		const char *endId = objectId.data() + objectId.size();
++		const auto parsed = std::from_chars(objectId.data(), endId, id);
++		if (parsed.ec != std::errc{} || parsed.ptr != endId || id == 0) {
++			*error = "Cannot read connector ID for " + name;
++			return std::nullopt;
++		}
++		if (selected) {
++			*error = "Multiple connected KMS outputs. Set PPSSPP_KMSDRM_CONNECTOR to a connector name.";
++			return std::nullopt;
++		}
++		selected = id;
++	}
++
++	if (ec) {
++		*error = "Cannot enumerate DRM connectors: " + ec.message();
++		return std::nullopt;
++	}
++	if (!selected)
++		*error = "No matching connected KMS output for " + std::string(card);
++	return selected;
++}
+diff --git a/SDL/SDLMain.cpp b/SDL/SDLMain.cpp
+index 6853525fb753154847845261ac2985e3ba7b9b2a..ac2b951ca432440d6a4b45a125e87e1a2e50e7fb 100644
+--- a/SDL/SDLMain.cpp
++++ b/SDL/SDLMain.cpp
+@@ -1416,6 +1416,17 @@ static int printUsage(const char *progname)
+ #ifdef _WIN32
+ #undef main
+ #endif
++// Private launcher ABI for opt-in display startup. Runtime exits use their usual status.
++static int ExitDirectKMSUnavailable() {
++	// NativeInit starts background services before the Vulkan context is set up.
++	// Join them normally and leave saved graphics preferences untouched.
++	g_Config.bSaveSettings = false;
++	NativeShutdown();
++	SDL_Quit();
++	glslang::FinalizeProcess();
++	return 69;
++}
++
+ int main(int argc, char *argv[]) {
+ 	for (int i = 1; i < argc; i++) {
+ 		if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h"))
+@@ -1677,6 +1688,12 @@ int main(int argc, char *argv[]) {
+ 	GraphicsContext *graphicsContext = nullptr;
+ 	SDL_Window *window = nullptr;
+ 
++	const bool directKMS = IsKMSDRMPanVKRequested();
++	if (directKMS && (g_Config.iGPUBackend != (int)GPUBackend::VULKAN || !vulkanMayBeAvailable)) {
++		fputs("PanVK direct KMS requires the Vulkan backend and an available Vulkan ICD.\n", stderr);
++		return ExitDirectKMSUnavailable();
++	}
++
+ 	// Switch away from Vulkan if not available.
+ 	if (g_Config.iGPUBackend == (int)GPUBackend::VULKAN && !vulkanMayBeAvailable) {
+ 		g_Config.iGPUBackend = (int)GPUBackend::OPENGL;
+@@ -1706,6 +1723,14 @@ int main(int argc, char *argv[]) {
+ 	} else if (g_Config.iGPUBackend == (int)GPUBackend::VULKAN) {
+ 		SDLVulkanGraphicsContext *vkctx = new SDLVulkanGraphicsContext();
+ 		if (!vkctx->Init(window, x, y, w, h, mode | SDL_WINDOW_VULKAN, &error_message)) {
++			if (directKMS) {
++				fprintf(stderr, "PanVK direct KMS startup failed: %s\n", error_message.c_str());
++				delete vkctx;
++				if (window)
++					SDL_DestroyWindow(window);
++				return ExitDirectKMSUnavailable();
++			}
++
+ 			// Let's try the fallback once per process run.
+ 
+ 			fprintf(stderr, "Vulkan init error '%s' - falling back to GL\n", error_message.c_str());
+diff --git a/SDL/SDLVulkanGraphicsContext.cpp b/SDL/SDLVulkanGraphicsContext.cpp
+index 47d05697d68190cf5539fc809b7ead1fdbe25e58..73c5d80991627efeb5235b8663425440fbeb21ad 100644
+--- a/SDL/SDLVulkanGraphicsContext.cpp
++++ b/SDL/SDLVulkanGraphicsContext.cpp
+@@ -1,4 +1,13 @@
+ #include "ppsspp_config.h"
++
++#include <cstdlib>
++#include <cstring>
++#if defined(VK_USE_PLATFORM_DISPLAY_KHR) && PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
++#include <cerrno>
++#include <fcntl.h>
++#include <unistd.h>
++#include "SDL/SDLKMSDRMConnector.h"
++#endif
+ #include "Core/Config.h"
+ #include "Core/ConfigValues.h"
+ #include "Common/System/System.h"
+@@ -28,9 +37,111 @@ static const bool g_Validate = true;
+ static const bool g_Validate = false;
+ #endif
+ 
++bool IsKMSDRMPanVKRequested() {
++#if PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
++	const char *request = std::getenv("PPSSPP_KMSDRM_PANVK");
++	return request && std::strcmp(request, "1") == 0;
++#else
++	return false;
++#endif
++}
++
++SDLVulkanGraphicsContext::~SDLVulkanGraphicsContext() {
++#if defined(VK_USE_PLATFORM_DISPLAY_KHR) && PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
++	if (acquiredDisplay_ != VK_NULL_HANDLE)
++		Shutdown();
++#endif
++	delete draw_;
++}
++
++#if defined(VK_USE_PLATFORM_DISPLAY_KHR) && PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
++bool SDLVulkanGraphicsContext::AcquireKMSDRMDisplay(int cardIndex, std::string *error) {
++	if (cardIndex < 0) {
++		*error = "SDL did not identify a KMS device";
++		return false;
++	}
++
++	const VkInstance instance = vulkan_->GetInstance();
++	const VkPhysicalDevice physicalDevice = vulkan_->GetCurrentPhysicalDevice();
++	auto getProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
++		PPSSPP_VK::vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
++	if (!getProperties2 ||
++	    vulkan_->GetPhysicalDeviceProperties().properties.apiVersion < VK_API_VERSION_1_2) {
++		*error = "Direct KMS requires Vulkan 1.2 and Mesa PanVK";
++		return false;
++	}
++
++	VkPhysicalDeviceDriverProperties driver{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
++	VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driver};
++	getProperties2(physicalDevice, &properties);
++	if (driver.driverID != VK_DRIVER_ID_MESA_PANVK) {
++		*error = "This direct KMS mode requires the Mesa PanVK ICD";
++		return false;
++	}
++
++	auto getDisplay = reinterpret_cast<PFN_vkGetDrmDisplayEXT>(
++		PPSSPP_VK::vkGetInstanceProcAddr(instance, "vkGetDrmDisplayEXT"));
++	auto acquireDisplay = reinterpret_cast<PFN_vkAcquireDrmDisplayEXT>(
++		PPSSPP_VK::vkGetInstanceProcAddr(instance, "vkAcquireDrmDisplayEXT"));
++	auto releaseDisplay = reinterpret_cast<PFN_vkReleaseDisplayEXT>(
++		PPSSPP_VK::vkGetInstanceProcAddr(instance, "vkReleaseDisplayEXT"));
++	if (!getDisplay || !acquireDisplay || !releaseDisplay) {
++		*error = "PanVK is missing direct DRM display entry points";
++		return false;
++	}
++
++	const std::string card = "card" + std::to_string(cardIndex);
++	const char *connector = std::getenv("PPSSPP_KMSDRM_CONNECTOR");
++	const auto id = FindSDLKMSDRMConnector("/sys/class/drm", card, connector ? connector : "", error);
++	if (!id)
++		return false;
++
++	const std::string device = "/dev/dri/" + card;
++	// The primary node grants master on open only if no process already owns it.
++	const int fd = open(device.c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW);
++	if (fd < 0) {
++		*error = "Could not open " + device + ": " + std::strerror(errno);
++		return false;
++	}
++
++	VkDisplayKHR display = VK_NULL_HANDLE;
++	const VkResult lookup = getDisplay(physicalDevice, fd, *id, &display);
++	if (lookup != VK_SUCCESS || display == VK_NULL_HANDLE) {
++		close(fd);
++		*error = "PanVK could not look up the connected KMS output (VkResult " + std::to_string(lookup) + ")";
++		return false;
++	}
++
++	const VkResult acquired = acquireDisplay(physicalDevice, fd, display);
++	if (acquired != VK_SUCCESS) {
++		close(fd);
++		*error = "PanVK could not acquire KMS display master (VkResult " + std::to_string(acquired) + ")";
++		return false;
++	}
++
++	// Mesa PanVK retains the acquired descriptor until vkReleaseDisplayEXT closes it.
++	acquiredDisplay_ = display;
++	releaseDisplay_ = releaseDisplay;
++	fprintf(stderr, "PanVK direct KMS acquired %s connector %u with %s\n", device.c_str(), *id, properties.properties.deviceName);
++	return true;
++}
++#endif
++
+ bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, int h, int mode, std::string *error_message) {
++	const bool directKMS = IsKMSDRMPanVKRequested();
++#if !defined(VK_USE_PLATFORM_DISPLAY_KHR)
++	if (directKMS) {
++		*error_message = "Direct KMS requires a build with USE_VULKAN_DISPLAY_KHR enabled";
++		return false;
++	}
++#endif
++
+ 	window = SDL_CreateWindow("Initializing Vulkan...", x, y, w, h, mode);
+ 	if (!window) {
++		if (directKMS) {
++			*error_message = SDL_GetError();
++			return false;
++		}
+ 		fprintf(stderr, "Error creating SDL window: %s\n", SDL_GetError());
+ 		exit(1);
+ 	}
+@@ -45,8 +156,8 @@ bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, in
+ 
+ 	std::string errorStr;
+ 	if (!VulkanLoad(&errorStr)) {
+-		*error_message = "Failed to load Vulkan driver library: ";
+-		(*error_message) += errorStr;
++		*error_message = "Failed to load Vulkan driver library: " + errorStr;
++		finalize_glslang();
+ 		return false;
+ 	}
+ 
+@@ -54,24 +165,29 @@ bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, in
+ 
+ 	VulkanContext::CreateInfo info{};
+ 	InitVulkanCreateInfoFromConfig(&info);
++	info.acquireDrmDisplay = directKMS;
+ 	if (VK_SUCCESS != vulkan_->CreateInstance(info)) {
+ 		*error_message = vulkan_->InitError();
+ 		delete vulkan_;
+ 		vulkan_ = nullptr;
++		VulkanFree();
++		finalize_glslang();
+ 		return false;
+ 	}
+ 
+ 	int deviceNum = vulkan_->GetPhysicalDeviceByName(g_Config.sVulkanDevice);
+ 	if (deviceNum < 0) {
+ 		deviceNum = vulkan_->GetBestPhysicalDevice();
+-		if (!g_Config.sVulkanDevice.empty())
++		if (!directKMS && !g_Config.sVulkanDevice.empty() && deviceNum >= 0)
+ 			g_Config.sVulkanDevice = vulkan_->GetPhysicalDeviceProperties(deviceNum).properties.deviceName;
+ 	}
+ 
+-	if (vulkan_->CreateDevice(deviceNum) != VK_SUCCESS) {
+-		*error_message = vulkan_->InitError();
++	if (deviceNum < 0 || vulkan_->CreateDevice(deviceNum) != VK_SUCCESS) {
++		*error_message = deviceNum < 0 ? "No Vulkan device supports graphics" : vulkan_->InitError();
++		vulkan_->DestroyInstance();
+ 		delete vulkan_;
+ 		vulkan_ = nullptr;
++		finalize_glslang();
+ 		return false;
+ 	}
+ 
+@@ -84,9 +200,21 @@ bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, in
+ 	SDL_SysWMinfo sys_info{};
+ 	SDL_VERSION(&sys_info.version); //Set SDL version
+ 	if (!SDL_GetWindowWMInfo(window, &sys_info)) {
++		if (directKMS) {
++			*error_message = SDL_GetError();
++			Shutdown();
++			return false;
++		}
+ 		fprintf(stderr, "Error getting SDL window wm info: %s\n", SDL_GetError());
+ 		exit(1);
+ 	}
++#if defined(VK_USE_PLATFORM_DISPLAY_KHR)
++	if (directKMS && sys_info.subsystem != SDL_SYSWM_KMSDRM) {
++		*error_message = "Direct KMS requires SDL's KMSDRM video driver";
++		Shutdown();
++		return false;
++	}
++#endif
+ 	switch (sys_info.subsystem) {
+ 	case SDL_SYSWM_X11:
+ #if defined(VK_USE_PLATFORM_XLIB_KHR)
+@@ -114,13 +242,27 @@ bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, in
+ #endif
+ #endif
+ #if defined(VK_USE_PLATFORM_DISPLAY_KHR)
+-	case SDL_SYSWM_KMSDRM:
+-		/*
+-		There is no problem passing null for the next two arguments, and reinit will be called later
+-		huangzihan china
+-		*/
+-		vulkan_->InitSurface(WINDOWSYSTEM_DISPLAY, nullptr, nullptr);
++	case SDL_SYSWM_KMSDRM: {
++		void *display = nullptr;
++#if PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
++		if (directKMS) {
++			if (!AcquireKMSDRMDisplay(sys_info.info.kmsdrm.dev_index, error_message)) {
++				Shutdown();
++				return false;
++			}
++			display = &acquiredDisplay_;
++		}
++#endif
++		const VkResult result = vulkan_->InitSurface(WINDOWSYSTEM_DISPLAY, display, nullptr);
++		if (result != VK_SUCCESS) {
++			*error_message = vulkan_->InitError();
++			if (error_message->empty())
++				*error_message = "Could not create the Vulkan KMS surface (VkResult " + std::to_string(result) + ")";
++			Shutdown();
++			return false;
++		}
+ 		break;
++	}
+ #endif
+ 	default:
+ 		fprintf(stderr, "Vulkan subsystem %d not supported\n", sys_info.subsystem);
+@@ -137,6 +279,8 @@ bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, in
+ 	VkPresentModeKHR presentMode = ConfigPresentModeToVulkan(draw_);
+ 	if (!vulkan_->InitSwapchain(presentMode)) {
+ 		*error_message = vulkan_->InitError();
++		if (error_message->empty())
++			*error_message = "Could not initialize the Vulkan swapchain";
+ 		Shutdown();
+ 		return false;
+ 	}
+@@ -159,6 +303,14 @@ void SDLVulkanGraphicsContext::Shutdown() {
+ 	vulkan_->WaitUntilQueueIdle();
+ 	vulkan_->DestroySwapchain();
+ 	vulkan_->DestroySurface();
++#if defined(VK_USE_PLATFORM_DISPLAY_KHR) && PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
++	if (acquiredDisplay_ != VK_NULL_HANDLE) {
++		const VkResult released = releaseDisplay_(vulkan_->GetCurrentPhysicalDevice(), acquiredDisplay_);
++		fprintf(stderr, "PanVK direct KMS release result %d\n", released);
++		acquiredDisplay_ = VK_NULL_HANDLE;
++		releaseDisplay_ = nullptr;
++	}
++#endif
+ 	vulkan_->DestroyDevice();
+ 	vulkan_->DestroyInstance();
+ 	delete vulkan_;
+diff --git a/SDL/SDLVulkanGraphicsContext.h b/SDL/SDLVulkanGraphicsContext.h
+index f10edf8d2bea1740b5a0a7a4e7d0562850a6cf06..e57ef6f4dc063c91ec91f2814ea7e4d95858f6b4 100644
+--- a/SDL/SDLVulkanGraphicsContext.h
++++ b/SDL/SDLVulkanGraphicsContext.h
+@@ -15,12 +15,12 @@
+ 
+ class VulkanRenderManager;
+ 
++bool IsKMSDRMPanVKRequested();
++
+ class SDLVulkanGraphicsContext : public GraphicsContext {
+ public:
+ 	SDLVulkanGraphicsContext() {}
+-	~SDLVulkanGraphicsContext() {
+-		delete draw_;
+-	}
++	~SDLVulkanGraphicsContext();
+ 
+ 	bool Init(SDL_Window *&window, int x, int y, int w, int h, int mode, std::string *error_message);
+ 
+@@ -38,6 +38,11 @@ class SDLVulkanGraphicsContext : public GraphicsContext {
+ 		return draw_;
+ 	}
+ private:
++#if defined(VK_USE_PLATFORM_DISPLAY_KHR) && PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
++	bool AcquireKMSDRMDisplay(int cardIndex, std::string *error);
++	VkDisplayKHR acquiredDisplay_ = VK_NULL_HANDLE;
++	PFN_vkReleaseDisplayEXT releaseDisplay_ = nullptr;
++#endif
+ 	Draw::DrawContext *draw_ = nullptr;
+ 	VulkanContext *vulkan_ = nullptr;
+ 	VulkanRenderManager *renderManager_ = nullptr;

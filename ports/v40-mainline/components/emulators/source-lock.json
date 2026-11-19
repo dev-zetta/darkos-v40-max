@@ -1,0 +1,14 @@
+{
+  "retroarch": {
+    "revision": "69a4f0ea1e8aaf442ae4858f2e7f2b31a1776576",
+    "archive": "RetroArch-v1.22.2.tar.gz",
+    "url": "https://codeload.github.com/libretro/RetroArch/tar.gz/refs/tags/v1.22.2",
+    "sha256": "245ef18c8fa8fbd9fbb5eb25cf43e17c6aace2f95c1ed99873cbd794012bb232"
+  },
+  "pcsx_rearmed": {
+    "revision": "7b0e8f8fadfbce3d170d195b9d9eecaabfa08c8e",
+    "archive": "pcsx-rearmed-7b0e8f8fadfbce3d170d195b9d9eecaabfa08c8e.tar.gz",
+    "url": "https://codeload.github.com/libretro/pcsx_rearmed/tar.gz/7b0e8f8fadfbce3d170d195b9d9eecaabfa08c8e",
+    "sha256": "4f47bd98bac6cdf62dd4f7a56069b0b0d9999aa6800e636334d1788c5cf38ccf"
+  }
+}

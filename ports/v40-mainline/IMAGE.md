@@ -1,6 +1,6 @@
 # ArkOS4Clone V40 Max image
 
-This image targets the tested RK3326 V40 Max board with a 720×720 panel. It uses the publicly released Debian 13 dArkOS4Clone userspace, the V40 Linux 7.3.4-v40.1 kernel, private ARM64 and ARM32 Mesa/SDL, EmulationStation V6, and standard PPSSPP 1.20.4. It carries the mainline panel, gamepad, speaker routing, I²S clock, and battery indicator fixes. Use a separate SD card of at least **16 GB**. Flashing the image replaces the partition table and files on the selected card.
+This image targets the tested RK3326 V40 Max board with a 720×720 panel. It uses the publicly released Debian 13 dArkOS4Clone userspace, the V40 Linux 7.3.4-v40.1 kernel, private ARM64 and ARM32 Mesa/SDL, EmulationStation V6, and standard PPSSPP 1.20.4. It carries the mainline panel, gamepad, speaker routing, I²S clock, and battery indicator fixes. Image r2 adds the DRM/KMS RetroArch builds, corrected emulator launch paths, the uinput add-on, and the PAL Super Mario 64 launch profile. See the [emulator notes](EMULATORS.md) for coverage. Use a separate SD card of at least **16 GB**. Flashing the image replaces the partition table and files on the selected card.
 
 ## Install and test
 
@@ -17,9 +17,9 @@ The correction for PPSSPP audio scrambling is separate from USB-dependent speake
 
 ## Build and provenance
 
-[image-inputs.json](image-inputs.json) records the public base parts, bootloader profile, BusyBox and Realtek firmware identities. [BUILD.md](BUILD.md) describes the kernel and userspace source inputs. The [image workflow](../../.github/workflows/v40-image.yml) builds the kernel and modules, private graphics and frontend, and PPSSPP in independent jobs. It then combines the outputs into a fresh disk image and verifies the partitions and boot files. The tagged publish job promotes the verified archive built for the same commit without regenerating the partitions.
+[image-inputs.json](image-inputs.json) records the public base parts, bootloader profile, BusyBox and Realtek firmware identities. [BUILD.md](BUILD.md) describes the kernel and userspace source inputs. The [image workflow](../../.github/workflows/v40-image.yml) builds the kernel and modules, private graphics and frontend, PPSSPP, and the RetroArch and libretro overlay in independent jobs. It then combines the outputs into a fresh disk image and verifies the partitions and boot files. The tagged publish job promotes the verified archive built for the same commit without regenerating the partitions.
 
-To assemble locally, use Linux with Bash, Python 3, jq, curl, xz, 7z, zstd, dosfstools, btrfs-progs, exfatprogs, util-linux, device-tree-compiler and rsync. The assembler needs root for temporary loop-backed mounts. Inputs are the kernel payload directory, the runtime overlay and the standard PPSSPP installation. The kernel payload contains `Image`, `rk3326-v40-max.dtb`, `bootstrap.dtb` from `build_uboot_profile.py`, and the built `modules/7.3.4-v40.1` tree.
+To assemble locally, use Linux with Bash, Python 3, jq, curl, xz, 7z, zstd, dosfstools, btrfs-progs, exfatprogs, util-linux, device-tree-compiler and rsync. The assembler needs root for temporary loop-backed mounts. Inputs are the kernel payload directory, the runtime overlay merged with the emulator overlay, and the standard PPSSPP installation. The kernel payload contains `Image`, `rk3326-v40-max.dtb`, `bootstrap.dtb` from `build_uboot_profile.py`, and the built `modules/7.3.4-v40.1` tree with its ABI-checked uinput add-on.
 
 ```sh
 sudo bash ports/v40-mainline/scripts/build_full_image.sh \

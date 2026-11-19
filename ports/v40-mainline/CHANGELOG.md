@@ -1,3 +1,13 @@
+## Image revision 7.3.4-v40.1-r2
+
+- Use RetroArch 1.22.2 with Mesa and ordinary DRM/KMS on ARM64 and ARMHF. Rebuild the ARMHF PCSX ReARMed NEON core with a non-executable stack, and repair the GO-Super RetroArch face button and stick bindings.
+- Use a private V40 RetroArch presenter and ParaLLEl N64 core for the verified PAL Super Mario 64 launch. Prepare 86 verified guest code blocks before demand, avoid eager Rice shader variants, and populate a separate Mesa cache during play.
+- Serialize standard standalone PPSSPP launches and recover a stale same-user instance counter that could mute game audio after an interrupted run.
+- Build and install the uinput add-on against the unchanged Linux 7.3.4-v40.1 module ABI, with access for the input group.
+- Use the private ARMHF Mesa route for the inherited Flycast r7 launchers for Dreamcast, Naomi and Atomiswave. Supply your own appropriate BIOS files.
+
+The three normal-launch castle replays on the development card measured 50.026–50.031 guest FPS, 699 displayed frames of 700 each, and a longest display gap of 49.45 ms. They passed the automated digital audio and control checks. The public image builds the emulator binaries from source and starts with an empty shader cache. A V40 Max cold boot of the exact r2 image and hardware qualification of its rebuilt emulator binaries remain pending. [Emulator evidence and scope](EMULATORS.md)
+
 ## Image revision 7.3.4-v40.1-r1
 
 - First full SD-card release for the V40 Max. It uses Linux 7.3.4-v40.1, the pinned Debian 13 ArkOS4Clone base, the V40 display and audio fixes, and standard PPSSPP 1.20.4.

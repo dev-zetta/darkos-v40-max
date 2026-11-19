@@ -1,0 +1,576 @@
+--- a/gfx/drivers_context/drm_ctx.c
++++ b/gfx/drivers_context/drm_ctx.c
+@@ -51,6 +51,17 @@
+ 
+ #include "../common/gl_common.h"
+ 
++#if defined(__linux__) && defined(HAVE_EGL) && defined(HAVE_OPENGLES) && \
++    defined(HAVE_THREADS) && !defined(HAVE_DYNAMIC_EGL)
++#define V40_DRM_WORKER 1
++#include <GLES2/gl2.h>
++#include <errno.h>
++#include <pthread.h>
++#include <stdlib.h>
++#include <sys/eventfd.h>
++#include <time.h>
++#endif
++
+ #ifdef HAVE_OPENGLES
+ 
+ #ifndef EGL_OPENGL_ES3_BIT_KHR
+@@ -78,8 +89,15 @@
+    unsigned fb_height;
+    bool core_hw_context_enable;
+    bool waiting_for_flip;
++#ifdef V40_DRM_WORKER
++   struct v40_drm_worker *worker;
++#endif
+ } gfx_ctx_drm_data_t;
+ 
++#ifdef V40_DRM_WORKER
++static bool v40_drm_unsafe_teardown;
++#endif
++
+ struct drm_fb
+ {
+    struct gbm_bo *bo;
+@@ -443,6 +461,8 @@
+    unsigned width, height, stride, handle;
+    struct drm_fb *fb = (struct drm_fb*)calloc(1, sizeof(*fb));
+ 
++   if (!fb)
++      return NULL;
+    fb->bo = bo;
+ 
+    width  = gbm_bo_get_width(bo);
+@@ -467,6 +487,10 @@
+    return NULL;
+ }
+ 
++#ifdef V40_DRM_WORKER
++#include "v40_drm_worker.h"
++#endif
++
+ static void gfx_ctx_drm_swap_interval(void *data, int interval)
+ {
+    gfx_ctx_drm_data_t *drm = (gfx_ctx_drm_data_t*)data;
+@@ -479,8 +503,15 @@
+ static void gfx_ctx_drm_check_window(void *data, bool *quit,
+       bool *resize, unsigned *width, unsigned *height)
+ {
++#ifdef V40_DRM_WORKER
++   gfx_ctx_drm_data_t *drm = (gfx_ctx_drm_data_t *)data;
++#endif
+    *resize = false;
+    *quit   = (bool)frontend_driver_get_signal_handler_state();
++#ifdef V40_DRM_WORKER
++   if (drm->worker && v40_drm_worker_error(drm->worker))
++      *quit = true;
++#endif
+    *width = g_drm_mode->hdisplay;
+    *height = g_drm_mode->vdisplay;
+ }
+@@ -551,6 +582,14 @@
+    settings_t *settings           = config_get_ptr();
+    unsigned max_swapchain_images  = settings->uints.video_max_swapchain_images;
+ 
++#ifdef V40_DRM_WORKER
++   if (drm->worker)
++   {
++      v40_drm_swap(drm);
++      return;
++   }
++#endif
++
+    /* Recreate the surface */
+    if (switch_mode)
+    {
+@@ -663,7 +702,16 @@
+    if (!drm)
+       return;
+ 
+-   /* Make sure we acknowledge all page-flips. */
++#ifdef V40_DRM_WORKER
++   if (drm->worker && !v40_drm_stop(drm))
++   {
++      /* Preserve KMS-owned buffers until the process closes its descriptors. */
++      v40_drm_unsafe_teardown = true;
++      RARCH_ERR("[KMS] V40 worker could not detach its buffers. Exiting context with KMS resources held.\n");
++      return;
++   }
++#endif
++   /* Make sure we acknowledge all stock-path page-flips. */
+    gfx_ctx_drm_wait_flip(drm, true);
+ 
+ #ifdef HAVE_EGL
+@@ -691,10 +739,14 @@
+    const char *gpu                      = NULL;
+    struct string_list *gpu_descriptors  = NULL;
+    settings_t *settings                 = config_get_ptr();
+-   gfx_ctx_drm_data_t *drm              = (gfx_ctx_drm_data_t*)
+-      calloc(1, sizeof(gfx_ctx_drm_data_t));
++   gfx_ctx_drm_data_t *drm;
+    unsigned video_monitor_index         = settings->uints.video_monitor_index;
+ 
++#ifdef V40_DRM_WORKER
++   if (v40_drm_unsafe_teardown)
++      return NULL;
++#endif
++   drm = (gfx_ctx_drm_data_t*)calloc(1, sizeof(*drm));
+    if (!drm)
+       return NULL;
+    drm->fd = -1;
+@@ -806,6 +858,13 @@
+ 
+    if (!drm)
+       return false;
++#ifdef V40_DRM_WORKER
++   if (drm->worker)
++   {
++      RARCH_ERR("[KMS] V40 worker requires a fixed mode for this context.\n");
++      return false;
++   }
++#endif
+ 
+    frontend_driver_install_signal_handler();
+    /* If we use black frame insertion,
+@@ -903,14 +962,21 @@
+ #endif
+ 
+    drm->bo   = gbm_surface_lock_front_buffer(drm->gbm_surface);
++   if (!drm->bo)
++      goto error;
+ 
+    if (!(fb = (struct drm_fb*)gbm_bo_get_user_data(drm->bo)))
+       fb     = drm_fb_get_from_bo(drm->bo);
++   if (!fb)
++      goto error;
+ 
+    if ((ret  = drmModeSetCrtc(g_drm_fd,
+          g_crtc_id, fb->fb_id, 0, 0, &g_connector_id, 1, g_drm_mode)) < 0)
+       goto error;
+ 
++#ifdef V40_DRM_WORKER
++   v40_drm_start(drm, settings);
++#endif
+    return true;
+ 
+ error:
+--- /dev/null
++++ b/gfx/drivers_context/v40_drm_worker.h
+@@ -0,0 +1,415 @@
++/* Private fixed-mode V40 presenter, included only by drm_ctx.c. */
++
++#define V40_FLIP_WAIT_MS 500
++#define V40_STOP_WAIT_MS 250
++#define V40_RETRY_MS 5
++#define V40_READY_WAIT_NS 4000000L
++
++struct v40_drm_frame
++{
++   struct gbm_bo *bo;
++   uint32_t fb_id;
++};
++
++struct v40_drm_worker
++{
++   pthread_t thread;
++   pthread_mutex_t mutex;
++   pthread_cond_t ready_consumed;
++   int fd;
++   int wake_fd;
++   uint32_t crtc_id;
++   int error;
++   bool stopping;
++   uint64_t pending_since;
++   uint64_t stop_at;
++   struct gbm_bo *scanout;
++   struct v40_drm_frame pending;
++   struct v40_drm_frame ready;
++   struct gbm_bo *retired[2];
++   unsigned retired_count;
++};
++
++static uint64_t v40_drm_now_ms(void)
++{
++   struct timespec now;
++   clock_gettime(CLOCK_MONOTONIC, &now);
++   return (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
++}
++
++static void v40_drm_record_error(struct v40_drm_worker *worker, int error)
++{
++   pthread_mutex_lock(&worker->mutex);
++   if (!worker->error)
++      worker->error = error;
++   pthread_mutex_unlock(&worker->mutex);
++}
++
++static int v40_drm_worker_error(struct v40_drm_worker *worker)
++{
++   int error;
++   pthread_mutex_lock(&worker->mutex);
++   error = worker->error;
++   pthread_mutex_unlock(&worker->mutex);
++   return error;
++}
++
++static void v40_drm_wake(struct v40_drm_worker *worker)
++{
++   uint64_t one = 1;
++   ssize_t result;
++   do
++      result = write(worker->wake_fd, &one, sizeof(one));
++   while (result < 0 && errno == EINTR);
++   if (result < 0 && errno != EAGAIN)
++      v40_drm_record_error(worker, errno);
++}
++
++static void v40_drm_flip_complete(int fd, unsigned sequence, unsigned sec,
++      unsigned usec, void *userdata)
++{
++   struct v40_drm_worker *worker = userdata;
++   (void)fd;
++   (void)sequence;
++   (void)sec;
++   (void)usec;
++
++   pthread_mutex_lock(&worker->mutex);
++   if (!worker->pending.bo)
++      worker->error = EPROTO;
++   else
++   {
++      /* Each submission reserves one entry until its completion. */
++      worker->retired[worker->retired_count++] = worker->scanout;
++      worker->scanout = worker->pending.bo;
++      worker->pending.bo = NULL;
++   }
++   pthread_mutex_unlock(&worker->mutex);
++}
++
++static uint64_t v40_drm_submit(struct v40_drm_worker *worker, uint64_t now)
++{
++   int error;
++   struct v40_drm_frame frame;
++
++   pthread_mutex_lock(&worker->mutex);
++   if (worker->stopping || worker->error || worker->pending.bo ||
++       !worker->ready.bo || worker->retired_count >= ARRAY_SIZE(worker->retired))
++   {
++      pthread_mutex_unlock(&worker->mutex);
++      return 0;
++   }
++   frame = worker->ready;
++   worker->ready.bo = NULL;
++   pthread_cond_signal(&worker->ready_consumed);
++   worker->pending = frame;
++   worker->pending_since = now;
++   pthread_mutex_unlock(&worker->mutex);
++
++   /* Keep the mutex available to the renderer even if the ioctl stalls. */
++   if (drmModePageFlip(worker->fd, worker->crtc_id, frame.fb_id,
++            DRM_MODE_PAGE_FLIP_EVENT, worker) == 0)
++      return 0;
++
++   error = errno ? errno : EIO;
++   pthread_mutex_lock(&worker->mutex);
++   worker->pending.bo = NULL;
++   if (!worker->ready.bo && !worker->stopping)
++      worker->ready = frame;
++   else
++      worker->retired[worker->retired_count++] = frame.bo;
++   if (error != EBUSY && error != EAGAIN && error != EINTR)
++      worker->error = error;
++   pthread_mutex_unlock(&worker->mutex);
++   return v40_drm_now_ms() + V40_RETRY_MS;
++}
++
++static void *v40_drm_present(void *opaque)
++{
++   struct v40_drm_worker *worker = opaque;
++   struct pollfd fds[2] = {
++      { worker->fd, POLLIN, 0 },
++      { worker->wake_fd, POLLIN, 0 },
++   };
++   drmEventContext events = {0};
++   uint64_t retry_at = 0;
++   uint64_t busy_since = 0;
++
++   /* Use the same legacy callback slot and event type as the original path. */
++   events.version = DRM_EVENT_CONTEXT_VERSION;
++   events.page_flip_handler = v40_drm_flip_complete;
++
++   for (;;)
++   {
++      uint64_t now = v40_drm_now_ms();
++      int timeout = 50;
++      int result;
++
++      pthread_mutex_lock(&worker->mutex);
++      if (worker->error ||
++          (worker->stopping && (!worker->pending.bo || now >= worker->stop_at)))
++      {
++         pthread_mutex_unlock(&worker->mutex);
++         return NULL;
++      }
++      if (worker->pending.bo && now >= worker->pending_since + V40_FLIP_WAIT_MS)
++      {
++         worker->error = ETIMEDOUT;
++         pthread_mutex_unlock(&worker->mutex);
++         return NULL;
++      }
++      pthread_mutex_unlock(&worker->mutex);
++
++      if (now >= retry_at)
++      {
++         retry_at = v40_drm_submit(worker, now);
++         if (!retry_at)
++            busy_since = 0;
++         else if (!busy_since)
++            busy_since = now;
++         else if (now >= busy_since + V40_FLIP_WAIT_MS)
++         {
++            v40_drm_record_error(worker, ETIMEDOUT);
++            return NULL;
++         }
++         now = v40_drm_now_ms();
++      }
++      if (retry_at > now && retry_at - now < (uint64_t)timeout)
++         timeout = (int)(retry_at - now);
++
++      result = poll(fds, ARRAY_SIZE(fds), timeout);
++      if (result < 0 && errno == EINTR)
++         continue;
++      if (result < 0 || ((fds[0].revents | fds[1].revents) &
++            (POLLERR | POLLHUP | POLLNVAL)))
++      {
++         v40_drm_record_error(worker, result < 0 ? errno : EIO);
++         return NULL;
++      }
++      if (fds[0].revents & POLLIN)
++      {
++         if (drmHandleEvent(worker->fd, &events) < 0 && errno != EINTR)
++         {
++            v40_drm_record_error(worker, errno ? errno : EIO);
++            return NULL;
++         }
++      }
++      if (fds[1].revents & POLLIN)
++      {
++         uint64_t count;
++         /* A wake is advisory. Recheck the shared state on the next pass. */
++         if (read(worker->wake_fd, &count, sizeof(count)) < 0 &&
++             errno != EINTR && errno != EAGAIN)
++         {
++            v40_drm_record_error(worker, errno);
++            return NULL;
++         }
++      }
++   }
++}
++
++static void v40_drm_reap(struct v40_drm_worker *worker,
++      struct gbm_surface *surface)
++{
++   while (worker->retired_count)
++   {
++      struct gbm_bo *bo = worker->retired[--worker->retired_count];
++      gbm_surface_release_buffer(surface, bo);
++   }
++}
++
++static bool v40_drm_start(gfx_ctx_drm_data_t *drm, settings_t *settings)
++{
++   pthread_condattr_t condition;
++   PFNGLGETSTRINGPROC get_string;
++   const GLubyte *renderer;
++   const char *enabled = getenv("RETROARCH_V40_DRM_WORKER");
++   struct v40_drm_worker *worker;
++   if (!enabled || strcmp(enabled, "1") != 0)
++      return false;
++
++   get_string = (PFNGLGETSTRINGPROC)eglGetProcAddress("glGetString");
++   renderer = get_string ? get_string(GL_RENDERER) : NULL;
++   if (drm->fb_width != 720 || drm->fb_height != 720 ||
++       !renderer || !strstr((const char *)renderer, "Panfrost") ||
++       settings->uints.crt_switch_resolution ||
++       settings->uints.video_black_frame_insertion ||
++       settings->uints.video_shader_subframes > 1)
++   {
++      RARCH_WARN("[KMS] V40 worker requires fixed 720x720 Panfrost output.\n");
++      return false;
++   }
++   worker = calloc(1, sizeof(*worker));
++   if (!worker)
++      return false;
++   worker->fd = g_drm_fd;
++   worker->crtc_id = g_crtc_id;
++   worker->scanout = drm->bo;
++   worker->wake_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
++   if (worker->wake_fd < 0)
++      goto free_worker;
++   if (pthread_mutex_init(&worker->mutex, NULL))
++      goto close_event;
++   if (pthread_condattr_init(&condition))
++      goto destroy_mutex;
++   if (pthread_condattr_setclock(&condition, CLOCK_MONOTONIC) ||
++       pthread_cond_init(&worker->ready_consumed, &condition))
++   {
++      pthread_condattr_destroy(&condition);
++      goto destroy_mutex;
++   }
++   pthread_condattr_destroy(&condition);
++   if (pthread_create(&worker->thread, NULL, v40_drm_present, worker))
++      goto destroy_condition;
++
++   drm->worker = worker;
++   drm->bo = NULL;
++   RARCH_LOG("[KMS] V40 independent vblank presenter active.\n");
++   return true;
++
++destroy_condition:
++   pthread_cond_destroy(&worker->ready_consumed);
++destroy_mutex:
++   pthread_mutex_destroy(&worker->mutex);
++close_event:
++   close(worker->wake_fd);
++free_worker:
++   free(worker);
++   return false;
++}
++
++static void v40_drm_swap(gfx_ctx_drm_data_t *drm)
++{
++   struct v40_drm_worker *worker = drm->worker;
++   struct gbm_bo *bo;
++   struct drm_fb *fb;
++
++   pthread_mutex_lock(&worker->mutex);
++   if (worker->error || switch_mode)
++   {
++      if (!worker->error)
++         worker->error = ENOTSUP;
++      pthread_mutex_unlock(&worker->mutex);
++      return;
++   }
++   v40_drm_reap(worker, drm->gbm_surface);
++   if (!gbm_surface_has_free_buffers(drm->gbm_surface) && worker->ready.bo)
++   {
++      gbm_surface_release_buffer(drm->gbm_surface, worker->ready.bo);
++      worker->ready.bo = NULL;
++   }
++   if (!gbm_surface_has_free_buffers(drm->gbm_surface))
++   {
++      worker->error = ENOBUFS;
++      pthread_mutex_unlock(&worker->mutex);
++      return;
++   }
++   pthread_mutex_unlock(&worker->mutex);
++
++   if (!eglSwapBuffers(drm->egl.dpy, drm->egl.surf))
++   {
++      RARCH_ERR("[KMS] V40 worker EGL swap failed with 0x%x.\n", eglGetError());
++      v40_drm_record_error(worker, EIO);
++      return;
++   }
++   bo = gbm_surface_lock_front_buffer(drm->gbm_surface);
++   if (!bo)
++   {
++      v40_drm_record_error(worker, EIO);
++      return;
++   }
++   fb = (struct drm_fb *)gbm_bo_get_user_data(bo);
++   if (!fb)
++      fb = drm_fb_get_from_bo(bo);
++   if (!fb)
++   {
++      gbm_surface_release_buffer(drm->gbm_surface, bo);
++      v40_drm_record_error(worker, EIO);
++      return;
++   }
++
++   pthread_mutex_lock(&worker->mutex);
++   if (worker->ready.bo)
++   {
++      struct timespec deadline;
++      clock_gettime(CLOCK_MONOTONIC, &deadline);
++      deadline.tv_nsec += V40_READY_WAIT_NS;
++      if (deadline.tv_nsec >= 1000000000L)
++      {
++         deadline.tv_sec++;
++         deadline.tv_nsec -= 1000000000L;
++      }
++      /* Briefly retain both rendered frames so one extra render in the
++       * same vblank interval need not replace the waiting frame. */
++      while (worker->ready.bo && !worker->error)
++         if (pthread_cond_timedwait(&worker->ready_consumed,
++                  &worker->mutex, &deadline) != 0)
++            break;
++   }
++   v40_drm_reap(worker, drm->gbm_surface);
++   if (worker->error)
++   {
++      gbm_surface_release_buffer(drm->gbm_surface, bo);
++      pthread_mutex_unlock(&worker->mutex);
++      return;
++   }
++   /* A ready frame has never entered KMS and its lock can be replaced. */
++   if (worker->ready.bo)
++      gbm_surface_release_buffer(drm->gbm_surface, worker->ready.bo);
++   worker->ready = (struct v40_drm_frame){ bo, fb->fb_id };
++   pthread_mutex_unlock(&worker->mutex);
++   v40_drm_wake(worker);
++}
++
++static bool v40_drm_detach(gfx_ctx_drm_data_t *drm)
++{
++   if (g_orig_crtc && g_orig_crtc->mode_valid &&
++       drmModeSetCrtc(g_drm_fd, g_orig_crtc->crtc_id, g_orig_crtc->buffer_id,
++          g_orig_crtc->x, g_orig_crtc->y, &g_connector_id, 1, &g_orig_crtc->mode) == 0)
++      return true;
++
++   if (drmModeSetCrtc(drm->worker->fd, drm->worker->crtc_id,
++            0, 0, 0, NULL, 0, NULL) == 0)
++   {
++      RARCH_WARN("[KMS] V40 worker disabled the CRTC after restore was unavailable.\n");
++      return true;
++   }
++   return false;
++}
++
++static bool v40_drm_stop(gfx_ctx_drm_data_t *drm)
++{
++   struct v40_drm_worker *worker = drm->worker;
++   bool detached;
++   int error;
++   pthread_mutex_lock(&worker->mutex);
++   worker->stopping = true;
++   worker->stop_at = v40_drm_now_ms() + V40_STOP_WAIT_MS;
++   pthread_mutex_unlock(&worker->mutex);
++   v40_drm_wake(worker);
++   if (pthread_join(worker->thread, NULL))
++      return false;
++
++   error = worker->error;
++   if (error)
++      RARCH_ERR("[KMS] V40 worker stopped after error %d.\n", error);
++   detached = v40_drm_detach(drm);
++   v40_drm_reap(worker, drm->gbm_surface);
++   if (worker->ready.bo)
++      gbm_surface_release_buffer(drm->gbm_surface, worker->ready.bo);
++   if (detached)
++   {
++      if (worker->pending.bo)
++         gbm_surface_release_buffer(drm->gbm_surface, worker->pending.bo);
++      gbm_surface_release_buffer(drm->gbm_surface, worker->scanout);
++      if (g_orig_crtc)
++         drmModeFreeCrtc(g_orig_crtc);
++      g_orig_crtc = NULL; /* Do not restore a second time in the normal teardown. */
++   }
++   close(worker->wake_fd);
++   pthread_cond_destroy(&worker->ready_consumed);
++   pthread_mutex_destroy(&worker->mutex);
++   free(worker);
++   drm->worker = NULL;
++   return detached;
++}

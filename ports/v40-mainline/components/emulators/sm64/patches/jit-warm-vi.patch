@@ -1,0 +1,104 @@
+--- a/mupen64plus-core/src/r4300/new_dynarec/new_dynarec.c
++++ b/mupen64plus-core/src/r4300/new_dynarec/new_dynarec.c
+@@ -314,6 +314,10 @@
+ #endif
+ 
+ int new_recompile_block(int addr);
++void v40_jit_warm_on_vi(void);
++static void v40_warm_init(void);
++static void v40_warm_dump(void);
++static int v40_warm_cache_wrapped;
+ void *get_addr_ht(u_int vaddr);
+ void *get_addr(u_int vaddr);
+ void *get_addr_32(u_int vaddr,u_int flags);
+@@ -7708,17 +7712,18 @@
+ void new_dynarec_init(void)
+ {
+   DebugMessage(M64MSG_INFO, "Init new dynarec");
++  v40_warm_init();
+ 
+-#if defined(VITA)
+-  sceBlock = getVMBlock();//sceKernelAllocMemBlockForVM("code", 1 << TARGET_SIZE_2);
+-  if (sceBlock < 0)
+-    printf("sceKernelAllocMemBlockForVM failed\n");
+-  int ret = sceKernelGetMemBlockBase(sceBlock, (void **)&base_addr);
+-  if (ret < 0)
+-    printf("sceKernelGetMemBlockBase failed\n");
+-
+-  sceKernelOpenVMDomain();
+-  printf("translation_cache = 0x%08X \n ", base_addr);
++#if defined(VITA)
++  sceBlock = getVMBlock();//sceKernelAllocMemBlockForVM("code", 1 << TARGET_SIZE_2);
++  if (sceBlock < 0)
++    printf("sceKernelAllocMemBlockForVM failed\n");
++  int ret = sceKernelGetMemBlockBase(sceBlock, (void **)&base_addr);
++  if (ret < 0)
++    printf("sceKernelGetMemBlockBase failed\n");
++
++  sceKernelOpenVMDomain();
++  printf("translation_cache = 0x%08X \n ", base_addr);
+ #elif NEW_DYNAREC == NEW_DYNAREC_ARM
+   if ((base_addr = mmap ((u_char *)BASE_ADDR, 1<<TARGET_SIZE_2,
+             PROT_READ | PROT_WRITE | PROT_EXEC,
+@@ -7819,6 +7824,7 @@
+   int n;
+ #ifdef V40_TRACE_DYNAREC
+   v40_jit_dump();
++  v40_warm_dump();
+ #endif
+ #ifndef VITA
+ #if defined(_MSC_VER)
+@@ -7897,6 +7903,7 @@
+ 
+ #ifdef V40_TRACE_DYNAREC
+ static __attribute__((noinline)) int v40_recompile_block(int addr);
++#include "jit-warm-dispatch.h"
+ 
+ int new_recompile_block(int addr)
+ {
+@@ -11094,7 +11101,10 @@
+     }
+   }
+   // External Branch Targets (jump_in)
+-  if(copy+slen*4>shadow+sizeof(shadow)) copy=shadow;
++  if(copy+slen*4>shadow+sizeof(shadow)) {
++    v40_warm_cache_wrapped=1;
++    copy=shadow;
++  }
+   for(i=0;i<slen;i++)
+   {
+     if(bt[i]||i==0)
+@@ -11164,8 +11174,10 @@
+ 
+   // If we're within 256K of the end of the buffer,
+   // start over from the beginning. (Is 256K enough?)
+-  if((u_int)out > (u_char *)((u_char *)base_addr+(1<<TARGET_SIZE_2)-MAX_OUTPUT_BLOCK_SIZE-JUMP_TABLE_SIZE))
++  if(out > (u_char *)base_addr+(1<<TARGET_SIZE_2)-MAX_OUTPUT_BLOCK_SIZE-JUMP_TABLE_SIZE) {
++    v40_warm_cache_wrapped=1;
+     out=(u_char *)base_addr;
++  }
+ 
+   // Trap writes to any of the pages we compiled
+   for(i=start>>12;i<=(int)((start+slen*4)>>12);i++) {
+--- a/mupen64plus-core/src/vi/vi_controller.c
++++ b/mupen64plus-core/src/vi/vi_controller.c
+@@ -27,6 +27,9 @@
+ #include "plugin/plugin.h"
+ #include "r4300/r4300_core.h"
+ #include "r4300/interrupt.h"
++#include "r4300/r4300.h"
++
++void v40_jit_warm_on_vi(void);
+ 
+ #include <string.h>
+ 
+@@ -164,6 +167,9 @@
+ 
+    add_interrupt_event_count(VI_INT, vi->next_vi);
+ 
++   if (get_r4300_emumode() == CORE_DYNAREC)
++      v40_jit_warm_on_vi();
++
+    /* trigger interrupt */
+    raise_rcp_interrupt(vi->r4300, MI_INTR_VI);
+ }

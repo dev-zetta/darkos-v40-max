@@ -149,6 +149,14 @@ def prepare_ppsspp(root, ppsspp):
         str(target(root, "var/tmp/v40-ppsspp-defaults")),
     ], check=True)
     remove(target(root, "var/tmp/v40-ppsspp-defaults"))
+    launcher = target(root, "usr/local/bin/ppsspp.sh")
+    original = target(root, "usr/local/libexec/v40-ppsspp-launcher")
+    if launcher.is_symlink() or not launcher.is_file() or original.exists() or original.is_symlink():
+        raise ValueError("Expected the untouched donor PPSSPP launcher")
+    original.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(launcher, original)
+    original.chmod(0o755)
+    write(launcher, (PORT / "components/ppsspp/v40-ppsspp-instance").read_text(), 0o755)
     systems = target(root, "etc/emulationstation/es_systems.cfg")
     config = ET.parse(systems, parser=ET.XMLParser(target=ET.TreeBuilder(insert_comments=True)))
     for emulators in config.findall("./system[name='psp']/emulators"):
@@ -177,14 +185,18 @@ def main():
     require_image_mount(root, args.donor_image.resolve(strict=True))
 
     modules = args.modules.resolve(strict=True)
-    if modules.name != RELEASE or not list(modules.rglob("rtw89_8851bu.ko*")):
-        raise ValueError("Missing matching V40 kernel modules")
+    if (modules.name != RELEASE or not list(modules.rglob("rtw89_8851bu.ko*"))
+            or not (modules / "updates/v40-input/uinput.ko").is_file()):
+        raise ValueError("Missing matching V40 kernel modules or the uinput add-on")
     if not (args.overlay / "usr/local/lib/v40-mainline/emulationstation").is_file():
         raise ValueError("Missing built V40 frontend overlay")
     if not (args.firmware / "rtw89/rtw8851b_fw-1.bin").is_file():
         raise ValueError("Missing uncompressed AX900 firmware")
 
     copy_tree(args.overlay, root)
+    subprocess.run([
+        "python3", str(PORT / "components/emulators/configure-image.py"), str(root),
+    ], check=True)
     old_modules = target(root, "usr/lib/modules")
     remove(old_modules)
     copy_tree(modules, old_modules / RELEASE)
@@ -192,6 +204,9 @@ def main():
         remove(old_modules / RELEASE / link)
     copy_tree(args.firmware, target(root, "usr/lib/firmware"))
     prepare_ppsspp(root, args.ppsspp)
+    write(target(root, "etc/modules-load.d/v40-uinput.conf"), "uinput\n")
+    write(target(root, "etc/udev/rules.d/70-v40-uinput.rules"),
+          'SUBSYSTEM=="misc", KERNEL=="uinput", GROUP="input", MODE="0660"\n')
     update_shared_controller_database(root)
 
     units = target(root, "etc/systemd/system")

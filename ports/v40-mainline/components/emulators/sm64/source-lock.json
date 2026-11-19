@@ -1,0 +1,43 @@
+{
+  "retroarch": {
+    "revision": "v1.22.2",
+    "name": "RetroArch-v1.22.2.tar.gz",
+    "url": "https://codeload.github.com/libretro/RetroArch/tar.gz/refs/tags/v1.22.2",
+    "sha256": "245ef18c8fa8fbd9fbb5eb25cf43e17c6aace2f95c1ed99873cbd794012bb232",
+    "patches": [
+      "retroarch-kms-pacing.patch"
+    ]
+  },
+  "parallel_n64": {
+    "revision": "1922f4a60bb1335b0df995dcc0c232d82a32bb2d",
+    "name": "parallel-n64-1922f4a6.tar.gz",
+    "url": "https://codeload.github.com/libretro/parallel-n64/tar.gz/1922f4a60bb1335b0df995dcc0c232d82a32bb2d",
+    "sha256": "cb2e9904289757d918eb4cae18015cf003bfad762402863062bede7662a18fc0",
+    "patches": [
+      "parallel-n64-patch-rumble.patch",
+      "parallel-n64-patch-target32.patch",
+      "jit-attribution.patch",
+      "jit-short-block.patch",
+      "v40-rice-lazy-cxx98-v2.patch",
+      "jit-warm-vi.patch"
+    ]
+  },
+  "file_hashes": {
+    "jit-warm-dispatch.h": "03cebb57127ae03cd6ce2ba01f8107e40acabdccd0cc8d43bae295e0d6f59876",
+    "jit-warm-profile.h": "c82eb74545b26fedc4a78e73a38e2620da06afebbe1e7861088075e8ac9cb188",
+    "patches/jit-attribution.patch": "5ae358d65ba1133d889548688958e00ab3f03ed38dba9a25f6ba3ffc3e4ff849",
+    "patches/jit-short-block.patch": "8a68454d9ddd78a965577ec95b3772c3353a5ccd6fbf8708324043082cd98c3d",
+    "patches/jit-warm-vi.patch": "ad0c5f63e5bc8f5fc7804349c1576c7e57a9d461f5c288279ca8ddff2eaa5b93",
+    "patches/parallel-n64-patch-rumble.patch": "b402740ba00c8da0538531a8f0b0e74d85a0a9ccb2c5cb5f7e0fe5d67fc831f6",
+    "patches/parallel-n64-patch-target32.patch": "644cd99755e537befc049d718cd280d6156a6b18f7923539716904c750da3c31",
+    "patches/retroarch-kms-pacing.patch": "65ebbf78ce0cde3a601300e09c8883d8009fedd7c8327f6d4b3df3d1eac1dc19",
+    "patches/v40-rice-lazy-cxx98-v2.patch": "e8449e7ce4ca437ed543f1463222d0bdc7582a4a02ccbf978f355cab87b69be1"
+  },
+  "rom": {
+    "basename": "Super Mario 64.n64",
+    "region": "PAL",
+    "sha256": "8ca0178cb5c7c95bdc5dc9674665996a2d7210f94fb014e7f8b68910c77c3ecb",
+    "md5": "45676429EF6B90E65B517129B700308E",
+    "profile_blocks": 86
+  }
+}

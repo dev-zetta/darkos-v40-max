@@ -1,0 +1,135 @@
+--- a/gles2rice/src/OGLES2FragmentShaders.h
++++ b/gles2rice/src/OGLES2FragmentShaders.h
+@@ -19,6 +19,8 @@
+ #ifndef _OGL_FRAGMENT_SHADER_H_
+ #define _OGL_FRAGMENT_SHADER_H_
+ 
++#include <map>
++#include <string>
+ #include <vector>
+ 
+ #include "osal_opengl.h"
+@@ -89,6 +91,7 @@
+     virtual int ParseDecodedMux();
+     virtual void GenerateProgramStr();
+     int FindCompiledMux();
++    std::map<uint64_t, std::string> m_lazyMuxSources;
+     virtual void GenerateCombinerSetting(int index);
+     virtual void GenerateCombinerSettingConstants(int index);
+     float m_AlphaRef;
+--- a/gles2rice/src/OGLES2FragmentShaders.cpp
++++ b/gles2rice/src/OGLES2FragmentShaders.cpp
+@@ -17,6 +17,7 @@
+ */
+ 
+ #include <stdlib.h>
++#include <string.h>
+ #include "OGLES2FragmentShaders.h"
+ #include "OGLRender.h"
+ #include "OGLTexture.h"
+@@ -495,10 +496,21 @@
+ 
+ }
+ 
++static bool V40LazyCombinerEnabled(void)
++{
++    const char *setting = getenv("V40_RICE_LAZY_COMBINER");
++    return setting && strcmp(setting, "1") == 0;
++}
++
+ int COGL_FragmentProgramCombiner::ParseDecodedMux()
+ {
++    static const bool lazy = V40LazyCombinerEnabled();
+     OGLShaderCombinerSaveType res;
+     GLint success;
++
++    // Linked uniforms begin at zero. Initialize before assigning shader IDs.
++    if (lazy)
++        memset(&res, 0, sizeof(res));
+ 
+     if(vertexProgram == 9999)
+     {
+@@ -512,12 +524,34 @@
+     }
+ 
+ 
+-    //Create 4 shaders, with and without alphatest + with and without fog
+-    GenerateProgramStr();
+-
+-    for(int alphaTest = 0;alphaTest < 2;alphaTest++)
+-    {
+-       for(int fog = 0; fog < 2; fog++)
++    const char *fragmentSource = oglNewFP;
++    bool firstUse = false;
++    if (lazy)
++    {
++        // Generate once, before Reformat can see the mux in a different RDP state.
++        const uint64_t mux = (uint64_t(m_pDecodedMux->m_dwMux0) << 32)
++                           | m_pDecodedMux->m_dwMux1;
++        std::map<uint64_t, std::string>::iterator source = m_lazyMuxSources.find(mux);
++        firstUse = source == m_lazyMuxSources.end();
++        if (firstUse)
++        {
++            GenerateProgramStr();
++            source = m_lazyMuxSources.insert(std::make_pair(mux, std::string(oglNewFP))).first;
++        }
++        fragmentSource = source->second.c_str();
++    }
++    else
++        GenerateProgramStr();
++
++    // Eager Rice returns the false/false variant on the first occurrence of a mux.
++    // Retain that exact first-use choice and defer subsequent variants until requested.
++    const int firstAlpha = lazy && !firstUse && bAlphaTestState ? 1 : 0;
++    const int firstFog = lazy && !firstUse && bFogState ? 1 : 0;
++    const int endAlpha = lazy ? firstAlpha + 1 : 2;
++    const int endFog = lazy ? firstFog + 1 : 2;
++    for (int alphaTest = firstAlpha; alphaTest < endAlpha; ++alphaTest)
++    {
++       for (int fog = firstFog; fog < endFog; ++fog)
+        {
+           res.fragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
+ 
+@@ -532,7 +566,7 @@
+ 
+           res.fogIsUsed = fog == 1;
+           res.alphaTest = alphaTest == 1;
+-          strcat(tmpShader,oglNewFP);
++          strcat(tmpShader,fragmentSource);
+ 
+           glShaderSource(res.fragmentShaderID, 1,(const char**) &tmpShader,NULL);
+           free(tmpShader);
+@@ -546,7 +580,7 @@
+              char Log[1024];
+              GLint nLength;
+              glGetShaderInfoLog(res.fragmentShaderID, 1024, &nLength, Log);
+-             printf("Error compiling shader!\n %s",oglNewFP);
++             printf("Error compiling shader!\n %s",fragmentSource);
+              printf("%s", Log);
+           }
+ 
+@@ -599,7 +633,7 @@
+           m_vCompiledShaders.push_back(res);
+        }
+     }
+-    m_lastIndex = m_vCompiledShaders.size()-4;
++    m_lastIndex = m_vCompiledShaders.size() - (lazy ? 1 : 4);
+ 
+     return m_lastIndex;
+ }
+@@ -705,6 +739,7 @@
+     if( debuggerDropCombiners )
+     {
+         m_vCompiledShaders.clear();
++        m_lazyMuxSources.clear();
+         //m_dwLastMux0 = m_dwLastMux1 = 0;
+         debuggerDropCombiners = false;
+     }
+@@ -731,6 +766,7 @@
+     {
+         UpdateCombiner(m_pDecodedMux->m_dwMux0,m_pDecodedMux->m_dwMux1);
+         m_vCompiledShaders.clear();
++        m_lazyMuxSources.clear();
+         m_dwLastMux0 = m_dwLastMux1 = 0;
+         debuggerDropCombiners = false;
+     }

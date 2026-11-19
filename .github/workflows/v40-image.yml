@@ -46,6 +46,7 @@ jobs:
               python3 /port/scripts/prepare_kernel.py --archive /work/linux.tar.xz \
                 --source /work/linux --continuous-dma --dacmt-guard
               bash /port/scripts/build_kernel.sh /work/linux /work/output
+              bash /port/scripts/build_image_uinput.sh /work/linux /work/output
             '
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends device-tree-compiler zstd
@@ -131,8 +132,51 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
+  emulators:
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 105
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: ports/v40-mainline
+      - name: Build the V40 emulator overlay and corresponding sources
+        run: |
+          port="$GITHUB_WORKSPACE/ports/v40-mainline"
+          work="$RUNNER_TEMP/emulators"
+          mkdir -p "$work"
+          python3 -B -m unittest discover -s "$port/tests" -v
+          python3 -B "$port/components/emulators/sm64/test_route.py"
+          docker build --target v40-builder --tag v40-image-emulators "$port"
+          docker run --rm --user "$(id -u):$(id -g)" --env JOBS="$(nproc)" --env HOME=/work/home \
+            --volume "$port:/port:ro" --volume "$work:/work" v40-image-emulators bash -euc '
+              mkdir -p "$HOME"
+              bash /port/scripts/build_image_emulators.sh /work/build /work/root
+              bash /port/components/emulators/sm64/build.sh /work/sm64 /work/root
+            '
+          tar -C "$work/root" -cf - . | zstd -q -T2 -o "$work/emulators.tar.zst"
+          cp "$work/build"/{emulator-build.json,emulator-sources.tar.xz} "$work/"
+          cp "$work/sm64"/{sm64-build.json,sm64-sources.tar.xz} "$work/"
+      - name: Show emulator build failures
+        if: failure()
+        run: |
+          find "$RUNNER_TEMP/emulators" -maxdepth 2 -type f -name '*.log' \
+            -exec tail -n 40 -- '{}' +
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: v40-image-emulators
+          path: |
+            ${{ runner.temp }}/emulators/emulators.tar.zst
+            ${{ runner.temp }}/emulators/emulator-build.json
+            ${{ runner.temp }}/emulators/emulator-sources.tar.xz
+            ${{ runner.temp }}/emulators/sm64-build.json
+            ${{ runner.temp }}/emulators/sm64-sources.tar.xz
+          compression-level: 0
+          if-no-files-found: error
+
   image:
-    needs: [kernel, runtime, ppsspp]
+    needs: [kernel, runtime, ppsspp, emulators]
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
@@ -155,10 +199,11 @@ jobs:
       - name: Assemble and verify the disk image
         run: |
           work="$RUNNER_TEMP"
-          for kind in kernel runtime ppsspp; do
+          for kind in kernel runtime ppsspp emulators; do
             mkdir "$work/$kind"
             tar --zstd -xf "$work/inputs/v40-image-$kind/$kind.tar.zst" -C "$work/$kind"
           done
+          rsync -aH --safe-links "$work/emulators/" "$work/runtime/"
           sudo bash ports/v40-mainline/scripts/build_full_image.sh \
             "$work/assembly" "$work/kernel" "$work/runtime" "$work/ppsspp" "$work/disk"
           sudo chown -R "$(id -u):$(id -g)" "$work/disk"
@@ -175,7 +220,8 @@ jobs:
           cp "$work/disk/IMAGE-SHA256SUMS" "$work/release/"
           cp "$work/inputs/v40-image-ppsspp/ppsspp-1.20.4.tar.xz" "$work/release/"
           cp "$work/inputs/v40-image-runtime"/{runtime-build.json,runtime-sources.tar.xz} "$work/release/"
-          cp ports/v40-mainline/{CHANGELOG.md,IMAGE.md,image-inputs.json} "$work/release/"
+          cp "$work/inputs/v40-image-emulators"/{emulator-build.json,emulator-sources.tar.xz,sm64-build.json,sm64-sources.tar.xz} "$work/release/"
+          cp ports/v40-mainline/{CHANGELOG.md,EMULATORS.md,IMAGE.md,image-inputs.json} "$work/release/"
           git rev-parse HEAD > "$work/release/SOURCE_COMMIT"
           (cd "$work/release" && sha256sum -- * > SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

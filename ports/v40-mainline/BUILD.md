@@ -32,4 +32,21 @@ python3 scripts/stage_runtime.py --frontend /work/frontend/emulationstation --re
 python3 tests/test_ppsspp_settings.py
 ```
 
+For a full image, build the uinput add-on from the previously prepared source and build output. The helper checks every imported symbol version, then indexes the augmented module tree.
+
+```sh
+bash scripts/build_image_uinput.sh /work/linux-7.3.4-v40 /work/kernel-output
+```
+
+Build the common emulator overlay and the PAL Super Mario 64 components in the Dockerfile's `v40-builder` stage. The build directories must be new. Stage both contributions into the same overlay, then merge it into the runtime overlay for the image assembler.
+
+```sh
+bash scripts/build_image_emulators.sh /work/emulator-build /work/emulator-overlay
+bash components/emulators/sm64/build.sh /work/sm64-build /work/emulator-overlay
+rsync -aH --safe-links /work/emulator-overlay/ /work/runtime-overlay/
+python3 -B -m unittest discover -s tests -v
+```
+
+Keep both build manifests and source archives alongside the image. See [EMULATORS.md](EMULATORS.md) for the scope of the title-specific profile and its hardware results.
+
 Kernel source preparation and source hashes, component patch replay, runtime rendering and configuration behavioral checks are independently testable. They do not establish a fresh full-image build or physical acceptance of new binaries. Preserve the tested source/binary identities in docs/ARTIFACTS.json and record new identities for every rebuild.

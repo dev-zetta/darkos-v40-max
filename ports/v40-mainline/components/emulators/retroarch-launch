@@ -1,0 +1,4 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+export LD_LIBRARY_PATH='/usr/local/lib/v40-mainline/$LIB'
+exec /opt/retroarch/v40-mainline/bin/retroarch "$@"
