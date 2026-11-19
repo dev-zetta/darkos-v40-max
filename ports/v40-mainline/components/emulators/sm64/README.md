@@ -2,6 +2,8 @@
 
 The ARMHF RetroArch route selects the private KMS presenter and the ParaLLEl N64 core only when the standard launcher supplies the verified PAL dump at `/roms/n64/Super Mario 64.n64`, using the usual ParaLLEl N64 core. Both the path and SHA-256 must match. The core also verifies the ROM identity and the guest instruction window before preparing each of 86 blocks. Generated native code stays in memory, and the normal dynarec invalidation rules still apply. Normal launches of other games and other ROM revisions continue through the common RetroArch wrapper.
 
+The verified route clears `GBM_BACKENDS_PATH` and `LIBGL_DRIVERS_PATH` inherited from the menu so that ARMHF Mesa discovers its Debian backends. The route fixture supplies both variables and checks that the private process receives neither, while fallback launches receive both.
+
 With the Rice renderer and ordinary CPU/GPU clock policies, the V40 lab's three seeded-cache replays ran at 50.026–50.031 guest FPS. All three switched 699 displayed frames in a 700-frame castle replay, with a longest display gap of 49.450 ms. The captures matched the reference gameplay, and their digital PCM had no all-zero spans or clipped samples. These measurements cover the tested castle route and cache state. An image built from this component starts with an empty cache, so the first visit to a scene can still pause while Mesa prepares shaders. The launcher creates `/home/ark/.cache/v40-sm64` with private permissions, and subsequent normal play populates it. If the private cache path cannot be used, the common wrapper starts the usual ARMHF RetroArch route.
 
 ## Source and build

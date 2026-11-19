@@ -1,6 +1,6 @@
 # Mainline migration status, 2026-11-15
 
-See the [image r2 emulator results](../EMULATORS.md) for the later development-card display, control, and Super Mario 64 replay checks. Those measurements use the installed development builds and a populated Mesa cache.
+See the [emulator results](../EMULATORS.md) for the development-card display, controls, and Super Mario 64 replay checks. The r3 Mesa launcher fix passed three post-restart castle replays on the current card. Those measurements use the installed development builds and a populated Mesa cache.
 
 The [7.3.4-v40.1 kernel update](../KERNEL_RELEASE.md) uses the probe-time I²S1 correction. On the same build the user verified a normal cold boot and heard the tested PPSSPP game play without its former scrambling. The [live playback check](AUDIO_CONSOLE_20261117.md) recorded the corrected 600 MHz input, approximately 44,101 frames per second and zero ALSA XRUNs. The release uses standard PL330 DMA. In a separate USB comparison, an extension that moved the Wi-Fi dongle away stopped repeating speaker cracks. USB link mode remained at 480 Mb/s and Wi-Fi remained usable. Steady speaker static and the menu-entry pop remain open.
 

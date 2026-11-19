@@ -1,3 +1,10 @@
+## Image revision 7.3.4-v40.1-r3
+
+- Clear the inherited Mesa GBM and DRI search paths for the verified PAL Super Mario 64 launch. This lets ARMHF RetroArch use Debian's Mesa backend discovery when started from EmulationStation.
+- Check in CI that the PAL route clears both variables and fallback launches retain them.
+
+On the development card after restart, the normal launcher reached the animated title screen and exited with the configured hotkey. Three castle replays measured 50.027–50.041 guest FPS and passed the display, digital audio, and control checks. The longest display gap around the first jump was 49.3 ms. The exact r3 image still awaits a handheld cold boot and first play with an empty shader cache.
+
 ## Image revision 7.3.4-v40.1-r2
 
 - Use RetroArch 1.22.2 with Mesa and ordinary DRM/KMS on ARM64 and ARMHF. Rebuild the ARMHF PCSX ReARMed NEON core with a non-executable stack, and repair the GO-Super RetroArch face button and stick bindings.

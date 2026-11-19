@@ -2,6 +2,8 @@
 
 This image targets the tested RK3326 V40 Max board with a 720×720 panel. It uses the publicly released Debian 13 dArkOS4Clone userspace, the V40 Linux 7.3.4-v40.1 kernel, private ARM64 and ARM32 Mesa/SDL, EmulationStation V6, and standard PPSSPP 1.20.4. It carries the mainline panel, gamepad, speaker routing, I²S clock, and battery indicator fixes. Image r2 adds the DRM/KMS RetroArch builds, corrected emulator launch paths, the uinput add-on, and the PAL Super Mario 64 launch profile. See the [emulator notes](EMULATORS.md) for coverage. Use a separate SD card of at least **16 GB**. Flashing the image replaces the partition table and files on the selected card.
 
+Image r3 fixes a Mesa startup failure in the verified PAL Super Mario 64 launch from EmulationStation. For the hardware check, launch the verified PAL ROM from the game list and confirm the title screen animates, the castle renders, and the usual exit hotkey returns to the menu. Mesa populates the game's shader cache during play.
+
 ## Install and test
 
 1. Download the filesystem image and its checksums from the corresponding [GitHub release](https://github.com/dev-zetta/darkos-v40-max/releases). For an Actions candidate, use the `v40-bootable-image` artifact from the matching workflow run.

@@ -24,6 +24,8 @@ v40_sm64_route() {
     export MESA_SHADER_CACHE_DIR="$v40_sm64_cache" MESA_SHADER_CACHE_MAX_SIZE=32M
     export MESA_SHADER_CACHE_DISABLE=false
     export RETROARCH_V40_DRM_WORKER=1 V40_JIT_WARMUP=1 V40_RICE_LAZY_COMBINER=1
+    # Use Debian's Mesa backend discovery for the verified ARMHF route.
+    unset GBM_BACKENDS_PATH LIBGL_DRIVERS_PATH
     unset V40_N64_STOP_AFTER_JAL
     exec "$v40_sm64/retroarch32" "--appendconfig=$v40_sm64/pacing.cfg" \
         "$1" "$2" "$3" "$v40_sm64/jit/parallel_n64_libretro.so" "$5"

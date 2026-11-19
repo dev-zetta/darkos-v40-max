@@ -2,6 +2,8 @@
 
 This fork brings ArkOS4Clone’s Debian-based dArkOS userspace to the RK3326 V40 Max with a 720×720 display and **Linux 7.3.4-v40.1**. It includes the V40 panel and controller support, I²S audio clock correction, speaker routing, battery indicators, and RTL8851BU USB Wi-Fi support. The r2 image adds DRM/KMS RetroArch builds, a fixed ARMHF PlayStation core, the standard PPSSPP launch guard, and a title-specific frame-pacing and recompiler profile for PAL Super Mario 64.
 
+Image r3 fixes the Mesa startup failure when launching the verified PAL Super Mario 64 from EmulationStation. Three castle replays on the development card passed at approximately 50 FPS with clean digital audio. [Emulator validation and scope](ports/v40-mainline/EMULATORS.md)
+
 <img src="docs/images/v40-max.jpg" alt="Blue V40 Max handheld running dArkOS with both thumbstick rings lit" width="320">
 
 For hardware photos and specifications, see the [V40 Max page on Handhelds Wiki](https://handhelds.wiki/V40_MAX).
