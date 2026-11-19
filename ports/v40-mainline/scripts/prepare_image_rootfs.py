@@ -92,6 +92,14 @@ def update_shared_controller_database(root):
     database.write_bytes(bom + mapping + newline + b"".join(other_rows))
 
 
+def seed_frontend_controller(root):
+    path = target(root, "etc/emulationstation/es_input.cfg")
+    if path.exists() or path.is_symlink():
+        return
+    write(path, (PORT / "components/frontend/es_input.cfg").read_text())
+    os.chown(path, 1000, 1000)
+
+
 def set_default_settings(root):
     settings = target(root, "home/ark/.emulationstation/es_settings.cfg")
     data = settings.read_text()
@@ -270,6 +278,7 @@ ConditionPathExists=|!/etc/ssh/ssh_host_ed25519_key
         for glob in ("libmali-bifrost*", "libMali*", "libmali.so*"):
             for path in target(root, f"usr/lib/{triplet}").glob(glob):
                 remove(path)
+    seed_frontend_controller(root)
     set_default_settings(root)
     print("Prepared the V40 rootfs and fresh image defaults.")
 
