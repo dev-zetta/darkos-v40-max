@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Request PPSSPP's normal SDL shutdown when SELECT + START is pressed."""
+
+from contextlib import closing
+import os
+from pathlib import Path
+import pwd
+import select
+import signal
+import sys
+
+import evdev
+
+
+LEGACY = "/usr/local/bin/killer_daemon.py"
+EMULATORS = {
+    "/opt/ppsspp/PPSSPPSDL",
+    "/opt/ppsspp-2021/PPSSPPSDL",
+    "/opt/v40-psp-panvk/emulator/PPSSPPSDL",
+}
+CHORD = {704, 705}
+
+
+def legacy():
+    os.execv(LEGACY, [LEGACY, *sys.argv[1:]])
+
+
+def controller():
+    for event in Path("/sys/class/input").glob("event*"):
+        try:
+            if (event / "device/name").read_text().strip() == "GO-Super Gamepad":
+                return f"/dev/input/{event.name}"
+        except FileNotFoundError:
+            continue
+    return None
+
+
+def matches(process, uid):
+    try:
+        return process.stat().st_uid == uid and os.readlink(process / "exe") in EMULATORS
+    except (FileNotFoundError, ProcessLookupError, PermissionError):
+        return False
+
+
+def request_exit(uid):
+    candidates = [process for process in Path("/proc").iterdir()
+                  if process.name.isdecimal() and matches(process, uid)]
+    if len(candidates) != 1:
+        return
+    process = candidates[0]
+    try:
+        fd = os.pidfd_open(int(process.name))
+    except ProcessLookupError:
+        return
+    try:
+        if not matches(process, uid):
+            return
+        print(f"V40 PSP exit: requesting SDL shutdown for PID {process.name}", flush=True)
+        signal.pidfd_send_signal(fd, signal.SIGTERM)
+        watcher = select.poll()
+        watcher.register(fd, select.POLLIN)
+        if not watcher.poll(8000):
+            print("V40 PSP exit: emulator is still shutting down after 8 seconds", flush=True)
+    except ProcessLookupError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def main():
+    if sys.argv[1:] != ["PPSSPPSDL"]:
+        legacy()
+    path = controller()
+    if path is None:
+        legacy()
+    uid = pwd.getpwnam("ark").pw_uid
+    with closing(evdev.InputDevice(path)) as device:
+        for event in device.read_loop():
+            if (event.type == evdev.ecodes.EV_KEY and event.value == 1 and
+                    event.code in CHORD and CHORD.issubset(device.active_keys())):
+                request_exit(uid)
+
+
+if __name__ == "__main__":
+    main()

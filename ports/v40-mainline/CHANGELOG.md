@@ -1,3 +1,10 @@
+## Image revision 7.3.4-v40.1-r5
+
+- On the built-in V40 gamepad, SELECT + START requests a normal SDL shutdown of standalone PPSSPP. The hotkey gives the emulator time to release its graphics context before EmulationStation resumes.
+- Avoid the Panfrost scheduler timeouts observed after the legacy hotkey immediately force-killed PPSSPP.
+
+Two automated Alien Syndrome title-screen tests on an existing V40 Max installation returned to the same EmulationStation process. The menu responded to D-pad input, the kernel logged zero new Panfrost errors, and the PSP save and save-state hashes matched. The exact r5 image awaits a physical cold boot.
+
 ## Image revision 7.3.4-v40.1-r4
 
 - Seed the built-in V40 GO-Super controller profile on fresh cards so EmulationStation can open the game list with the pad configured.
