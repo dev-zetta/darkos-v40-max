@@ -4512,6 +4512,9 @@ msgid "ARKOS4CLONE SETTINGS"
 msgstr "ArkOS4Clone 设置"
 
 
+msgid "LAUNCH KODI"
+msgstr "启动 KODI"
+
 msgid "WIFI SETTINGS"
 msgstr "Wi-Fi 设置"
 
@@ -5326,3 +5329,12 @@ msgstr "更新失败"
 
 msgid "LATER"
 msgstr "稍后"
+
+msgid "ONLINE TOOLS"
+msgstr "联机工具"
+
+msgid "Netplay"
+msgstr "联机大厅"
+
+msgid "Stop ZeroTier"
+msgstr "停止 ZeroTier"

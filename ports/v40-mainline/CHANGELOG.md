@@ -1,9 +1,19 @@
+## Image revision 7.3.4-v40.1-r4
+
+- Seed the built-in V40 GO-Super controller profile on fresh cards so EmulationStation can open the game list with the pad configured.
+- Use FN as the RetroArch hotkey modifier in both ARM64 and ARMHF builds. SELECT and START keep their in-game bindings. The RetroArch exit shortcut is FN + START.
+- Keep the tested V40 Max bootloader donor under the V40 port’s build inputs. The release retains the pinned Debian base, Linux 7.3.4-v40.1, and the PAL Super Mario 64 Mesa launch fix.
+- Apply the generated APT cache cleanup from [PR #533](https://github.com/lcdyk0517/arkos4clone/pull/533) during fresh image assembly while preserving installed package documentation.
+- Merge 33 [ArkOS4Clone upstream changes](https://github.com/lcdyk0517/arkos4clone/compare/4abb343...c6b2551), including its rotation fixes, netplay, emulator updates, and Kodi work for the parent image. See [upstream tracking](UPSTREAM.md#november-2026-sync) for the boundary between the merged source tree and the V40 image.
+
+The r4 image targets the 720×720 V40 Max and awaits a physical cold boot. The 640×480 V40 Pro needs its own panel profile for both boot stages. See [hardware compatibility](IMAGE.md#hardware-compatibility).
+
 ## Image revision 7.3.4-v40.1-r3
 
 - Clear the inherited Mesa GBM and DRI search paths for the verified PAL Super Mario 64 launch. This lets ARMHF RetroArch use Debian's Mesa backend discovery when started from EmulationStation.
 - Check in CI that the PAL route clears both variables and fallback launches retain them.
 
-On the development card after restart, the normal launcher reached the animated title screen and exited with the configured hotkey. Three castle replays measured 50.027–50.041 guest FPS and passed the display, digital audio, and control checks. The longest display gap around the first jump was 49.3 ms. The exact r3 image still awaits a handheld cold boot and first play with an empty shader cache.
+On the development card after restart, the normal launcher reached the animated title screen and exited with the configured hotkey. Three castle replays measured 50.027–50.041 guest FPS and passed the display, digital audio, and control checks. The longest display gap around the first jump was 49.3 ms. The published r3 image was also cold-booted on a V40 Max. After the GO-Super profile was installed, Super Mario 64 played with clear audio and exited with SELECT + START followed by confirmation.
 
 ## Image revision 7.3.4-v40.1-r2
 

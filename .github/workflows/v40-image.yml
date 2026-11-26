@@ -5,7 +5,6 @@ on:
     branches: [main, v40-mainline-7.3.4]
     paths:
       - .github/workflows/v40-image.yml
-      - boot/dArkOS/consoles/r36splus/rk3326-r36splus-linux.dtb
       - ports/v40-mainline/**
       - uboot/**
     tags:
@@ -31,9 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: |
-            ports/v40-mainline
-            boot/dArkOS/consoles/r36splus
+          sparse-checkout: ports/v40-mainline
       - name: Build the pinned V40 kernel and modules
         run: |
           port="$GITHUB_WORKSPACE/ports/v40-mainline"
@@ -50,7 +47,7 @@ jobs:
             '
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends device-tree-compiler zstd
-          donor=boot/dArkOS/consoles/r36splus/rk3326-r36splus-linux.dtb
+          donor="$port/$(jq -er .bootstrap_donor_dtb "$port/image-inputs.json")"
           printf '%s  %s\n' "$(jq -er .bootstrap_donor_dtb_sha256 "$port/image-inputs.json")" "$donor" | sha256sum -c -
           python3 "$port/scripts/build_uboot_profile.py" \
             --donor "$donor" \

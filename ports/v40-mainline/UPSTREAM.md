@@ -15,6 +15,16 @@ git fetch --filter=blob:none darkos-upstream
 
 Use `git fetch --filter=blob:none origin` in the maintainer checkout to refresh the ArkOS4Clone parent. Fetching upstream Git refs leaves the released base-image lock in `image-inputs.json` in effect until a reviewed image update changes it.
 
+### November 2026 sync
+
+The source tree merges [ArkOS4Clone main through `c6b2551`](https://github.com/lcdyk0517/arkos4clone/compare/4abb343...c6b2551). The V40 image is assembled from the checksum-locked Debian base and the V40 overlays. The parent’s new Kodi, netplay, rotation fixes, and additional emulator packages are part of the upstream source merge for its own builds. The V40 build uses its Linux 7.3.4 kernel, source-built graphics and frontend, and tested emulator paths.
+
+The V40 bootstrap now locks the [R36S Plus donor from `4abb343`](https://github.com/lcdyk0517/arkos4clone/blob/4abb34366bb76b93e846fb3040c2511304badf9b/boot/dArkOS/consoles/r36splus/rk3326-r36splus-linux.dtb) in the port. Upstream can update its own donor without changing the V40 boot chain. The build verifies the V40 donor’s SHA-256 before deriving the Max panel profile.
+
+[ArkOS4Clone PR #533](https://github.com/lcdyk0517/arkos4clone/pull/533) is represented by `9cea22a`, `abd904b`, and `2ccb6dd` in this fork. The parent-style image assembly has those cleanup changes. The V40 builder clears generated APT caches, creates an empty games partition, and drops the entire inherited `roms.tar`, including its JDK payload. The V40 image keeps installed package documentation and notices.
+
+The [canonical dArkOS changes through `e9fb727`](https://github.com/christianhaitian/dArkOS/compare/86bac70...e9fb727) cover core-package installation, chroot build efficiency, and RK3566 or RK2023/RG353 targets. The V40 runtime already applies 512 KiB read-ahead to MMC disks, as proposed in the [dArkOS build-efficiency series](https://github.com/christianhaitian/dArkOS/commit/f2e9ccb). Its releases continue to use the port’s separate image assembly and pinned emulator builds.
+
 ## Component provenance
 
 The battery follow-up backports the authored RK817 NVRAM-scale and counter-first/rested-OCV fixes carried by ROCKNIX PR3305 at merge bc31d4293ac079e92e391ee737ad47064be82009. Chris Morgan and Jacob Cook's original headers, sign-offs and assistance attribution remain intact in kernel patches 0003 and 0004. The learned-FCC overflow guard and optional DC-input reporting patch are separate local changes. The latter uses the preserved factory GPIO0_B3 and pin bias; it does not import another board's amplifier GPIO or charger power policy. The frontend battery/layout/newline/footer fixes are recorded as separate local commits after the retained author-preserving series. See docs/BATTERY_STATUS_20261116.md and the patch/source locks for exact scope and hashes.

@@ -11,6 +11,8 @@
     "dArkOS4Clone-20261008.img.xz.7z.003": "96a9566a0b68db8a9416b61b3f3a7ca84bdbbf84fb319711df73e746eca803b7"
   },
   "base_license": "https://github.com/christianhaitian/dArkOS/blob/86bac70b51f6264670b95020aa7d3cf2cede622d/LICENSES.md",
+  "bootstrap_donor_dtb": "boot/r36splus-bootstrap-donor.dtb",
+  "bootstrap_donor_dtb_source": "https://github.com/lcdyk0517/arkos4clone/blob/4abb34366bb76b93e846fb3040c2511304badf9b/boot/dArkOS/consoles/r36splus/rk3326-r36splus-linux.dtb",
   "bootstrap_donor_dtb_sha256": "1c434940b210be4ffde57f6f7c3eb80e0ec19deb8b001c61d4d50c8d624d74a8",
   "busybox": {
     "url": "https://deb.debian.org/debian/pool/main/b/busybox/busybox-static_1.37.0-6+b9_arm64.deb",

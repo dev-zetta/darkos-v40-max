@@ -257,6 +257,7 @@ ConditionPathExists=|!/etc/ssh/ssh_host_ed25519_key
         ("etc/ssh", "ssh_host_*"), ("etc/NetworkManager/system-connections", "*"),
         ("var/lib/bluetooth", "*"), ("var/lib/systemd/pstore", "*"),
         ("var/log/journal", "*"), ("var/cache/apt/archives", "*.deb"),
+        ("var/cache/apt", "*.bin"),
     ):
         for path in target(root, directory).glob(pattern):
             remove(path)
