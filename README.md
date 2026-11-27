@@ -6,6 +6,8 @@ Image r3 fixes the Mesa startup failure when launching the verified PAL Super Ma
 
 Image r5 gives standalone PPSSPP time to shut down on **SELECT + START**. In two Alien Syndrome tests on the updated V40 Max installation, the game returned to the same responsive EmulationStation process with zero new Panfrost errors. [Image changelog](ports/v40-mainline/CHANGELOG.md#image-revision-734-v401-r5)
 
+Image r6 corrects the permissions on the `ark` home directory so OpenSSH can use the account’s standard `authorized_keys` file after you enable Remote Services. [SSH setup](ports/v40-mainline/IMAGE.md#ssh-access)
+
 <img src="docs/images/v40-max.jpg" alt="Blue V40 Max handheld running dArkOS with both thumbstick rings lit" width="320">
 
 For hardware photos and specifications, see the [V40 Max page on Handhelds Wiki](https://handhelds.wiki/V40_MAX).

@@ -1,9 +1,16 @@
+## Image revision 7.3.4-v40.1-r6
+
+- Set `/home/ark` to mode `0755` during fresh image assembly so OpenSSH accepts the account’s standard `~/.ssh/authorized_keys` after you enable Remote Services.
+- Document public-key setup for a freshly flashed card. [SSH access](IMAGE.md#ssh-access)
+
+A fresh r6 candidate cold-booted on a V40 Max with SSH off. Enabling Remote Services from Wi-Fi Settings generated new host keys and accepted the provisioned Ed25519 key from `ark`’s standard `authorized_keys` file. OpenSSH kept strict mode checks enabled, and `/home/ark` remained at `0755`.
+
 ## Image revision 7.3.4-v40.1-r5
 
 - On the built-in V40 gamepad, SELECT + START requests a normal SDL shutdown of standalone PPSSPP. The hotkey gives the emulator time to release its graphics context before EmulationStation resumes.
 - Avoid the Panfrost scheduler timeouts observed after the legacy hotkey immediately force-killed PPSSPP.
 
-Two automated Alien Syndrome title-screen tests on an existing V40 Max installation returned to the same EmulationStation process. The menu responded to D-pad input, the kernel logged zero new Panfrost errors, and the PSP save and save-state hashes matched. The exact r5 image awaits a physical cold boot.
+The published r5 image passed full card readback and cold-booted into EmulationStation on a V40 Max with its existing EASYROMS volume. Two automated Alien Syndrome tests returned to the same responsive EmulationStation process. The kernel logged zero new Panfrost errors, and the PSP save and save-state hashes matched.
 
 ## Image revision 7.3.4-v40.1-r4
 

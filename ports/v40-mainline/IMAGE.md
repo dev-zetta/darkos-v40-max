@@ -18,9 +18,17 @@ The image carries the V40 Max’s 720×720 panel timing and initialization comma
 
 The full image uses the public Clone-u-boot binaries and a 720×720 bootloader DTB derived from the [pinned R36S Plus donor](boot/r36splus-bootstrap-donor.dtb). The donor is the exact copy used for r3. The previously tested in-place update kept the factory bootloader. A fresh image has a different boot chain and needs its own cold-boot test. Hardware validation should name the image SHA-256. A successful CI build or QEMU test covers only the paths it exercised. See [validation](docs/VALIDATION.md) for the tested kernel and the outstanding hardware checks.
 
-The image disables the inherited automated updater, first-boot scripts, and console welcome message. Remote services are off initially. Set up your own SSH public key for user `ark` before enabling SSH. The image generates its own host identity and carries no developer Wi-Fi profiles, games, saves, or BIOS files. The build removes the legacy premium PPSSPP executable, selected restricted standalone emulator directories, raw proprietary Mali blobs, and the upstream game-partition seed archive. V40 Max Tools gives EmulationStation a system to show on an empty games card. The default theme is included as editable source. See the [image changelog](CHANGELOG.md) for the upstream changes included in each revision.
+The image disables the inherited automated updater, first-boot scripts, and console welcome message. It carries no developer Wi-Fi profiles, games, saves, or BIOS files. The build removes the legacy premium PPSSPP executable, selected restricted standalone emulator directories, raw proprietary Mali blobs, and the upstream game-partition seed archive. V40 Max Tools gives EmulationStation a system to show on an empty games card. The default theme is included as editable source. See the [image changelog](CHANGELOG.md) for the upstream changes included in each revision.
 
 The correction for PPSSPP audio scrambling is separate from USB-dependent speaker clicks. Moving the USB Wi-Fi dongle away on an extension helped on the tested device. Steady static, the menu-entry pop, and broad suspend and emulator coverage remain open.
+
+## SSH access
+
+1. On a Linux PC, mount the freshly flashed card’s `ROOTFS` partition and add your SSH public key to `home/ark/.ssh/authorized_keys`. Both `.ssh` and `authorized_keys` belong to `ark` (`1000:1000)). Set the directory mode to `0700` and the file mode to `0600`. Image r6 prepares `home/ark` with mode `0755`.
+2. Unmount the card, boot the handheld, and join Wi-Fi. Open **Wi-Fi Settings** and turn on **Remote Services**. The image generates its own SSH host keys when SSH first starts.
+3. Connect as `ark` using the IP address shown in Wi-Fi Settings. For example, run `ssh -i ~/.ssh/id_ed25519 ark@HANDHELD_IP`. Turn on **Remote Services Auto-Start** if you want SSH available after subsequent boots.
+
+Remote Services starts off. SSH uses public-key authentication and OpenSSH’s standard permission checks.
 
 ## Build and provenance
 

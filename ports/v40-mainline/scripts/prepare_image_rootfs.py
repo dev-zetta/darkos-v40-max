@@ -234,6 +234,10 @@ def main():
     remove(units / "sockets.target.wants/ssh.socket")
     for name in ("smbd.service", "nmbd.service"):
         remove(units / "multi-user.target.wants" / name)
+    home = target(root, "home/ark")
+    if home.is_symlink() or not home.is_dir():
+        raise ValueError("Expected the donor's ark home directory")
+    home.chmod(0o755)
     write(target(root, "etc/ssh/sshd_config.d/10-v40-image.conf"),
           "PermitRootLogin no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n")
     # Remote Services may first be enabled several boots after flashing the image.
